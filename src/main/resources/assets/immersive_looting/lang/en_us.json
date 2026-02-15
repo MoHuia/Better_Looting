@@ -1,0 +1,64 @@
+{
+  "key.categories.better_looting": "Better Looting",
+  "key.better_looting.pickup": "Loot Nearest Item",
+  "key.better_looting.toggle_filter": "Toggle Filter Mode",
+  "key.better_looting.open_config": "Open Config",
+  "key.better_looting.toggle_auto": "Toggle Auto Looting",
+  "key.better_looting.show_overlay": "Show/Hide Overlay",
+  "key.better_looting.scroll_up": "Select Previous Item",
+  "key.better_looting.scroll_down": "Select Next Item",
+
+  "message.better_looting.inventory_full": "Inventory Full!",
+  "message.better_looting.auto_on": "Auto Looting: ON",
+  "message.better_looting.auto_off": "Auto Looting: OFF",
+
+  "gui.better_looting.config.title": "HUD Layout Editor",
+  "gui.better_looting.config.conditions_title": "Display Conditions",
+  "gui.better_looting.config.header_condition": "Activation Mode",
+  "gui.better_looting.config.btn_conditions": "Conditions...",
+
+  "gui.better_looting.config.opacity": "Opacity",
+  "gui.better_looting.angle": "Trigger Angle",
+  "gui.better_looting.config.save": "Save & Exit",
+  "gui.better_looting.config.reset": "Reset Default",
+  "gui.better_looting.config.preview_title": "LOOT PREVIEW",
+
+  "gui.better_looting.config.mode.always": "Mode: Always",
+  "gui.better_looting.config.mode.look_down": "Mode: Look Down",
+  "gui.better_looting.config.mode.stand_still": "Mode: Stand Still",
+  "gui.better_looting.config.mode.key_hold": "Mode: Hold Key",
+  "gui.better_looting.config.mode.key_toggle": "Mode: Toggle Key",
+
+  "gui.better_looting.config.tooltip.always": "HUD is always visible when loot is nearby.",
+  "gui.better_looting.config.tooltip.look_down": "HUD only appears when looking down past the angle.",
+  "gui.better_looting.config.tooltip.stand_still": "HUD appears only when you are not moving.",
+  "gui.better_looting.config.tooltip.key_hold": "HUD appears only while holding the bound key.",
+  "gui.better_looting.config.tooltip.key_toggle": "Press the bound key to toggle HUD visibility.",
+
+  "gui.better_looting.config.key_info": "Bound Key: %s",
+  "gui.better_looting.config.key_unbound_hint": "(Set this in Options > Controls)",
+
+  "gui.better_looting.config.info.pos": "Pos: X=%s, Y=%s",
+  "gui.better_looting.config.info.size": "Size: W=%spx, H=%s rows",
+  "gui.better_looting.config.info.scale": "Scale: %sx",
+
+  "gui.better_looting.config.help.move": "Drag Body: Move",
+  "gui.better_looting.config.help.resize": "Drag Edge: Resize",
+  "gui.better_looting.config.help.scale": "Drag Corner: Scale",
+
+  "gui.better_looting.config.scroll_mode": "Scroll Mode",
+  "gui.better_looting.config.scroll.always": "Scroll: Always",
+  "gui.better_looting.config.scroll.key_bind": "Scroll: Hold Key",
+  "gui.better_looting.config.scroll.stand_still": "Scroll: Stand Still",
+
+  "gui.better_looting.config.tooltip.scroll.always": "Mouse wheel always cycles through the loot list.",
+  "gui.better_looting.config.tooltip.scroll.key_bind": "Mouse wheel cycles items only while holding the modifier key.",
+  "gui.better_looting.config.tooltip.scroll.stand_still": "Mouse wheel cycles items only when you are not moving.",
+
+  "gui.better_looting.config.scroll_key_info": "Scroll Modifier: %s",
+  "gui.better_looting.config.tooltip.settings": "Logic Settings",
+
+  "gui.better_looting.conditions_title": "Logic Settings",
+  "gui.better_looting.header_condition": "Overlay Display Condition",
+  "gui.better_looting.scroll_mode": "Scroll Wheel Usage Condition"
+}

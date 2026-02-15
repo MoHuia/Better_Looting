@@ -1,0 +1,66 @@
+{
+  "key.categories.better_looting": "Better Looting",
+  "key.better_looting.pickup": "拾取最近物品",
+  "key.better_looting.toggle_filter": "切换过滤模式",
+  "key.better_looting.open_config": "打开配置菜单",
+  "key.better_looting.toggle_auto": "自动拾取开关",
+  "key.better_looting.show_overlay": "显示/隐藏浮悬窗",
+  "key.better_looting.scroll_up": "向上选择物品",
+  "key.better_looting.scroll_down": "向下选择物品",
+
+  "message.better_looting.inventory_full": "背包已满！",
+  "message.better_looting.auto_on": "自动拾取: 已开启",
+  "message.better_looting.auto_off": "自动拾取: 已关闭",
+
+  "gui.better_looting.config.title": "HUD 布局编辑器",
+  "gui.better_looting.config.conditions_title": "显示条件设置",
+  "gui.better_looting.config.header_condition": "浮悬窗激活模式",
+  "gui.better_looting.config.btn_conditions": "显示条件...",
+
+  "gui.better_looting.config.opacity": "透明度",
+  "gui.better_looting.angle": "触发角度",
+  "gui.better_looting.config.save": "保存并退出",
+  "gui.better_looting.config.reset": "恢复默认",
+  "gui.better_looting.config.preview_title": "掉落物预览",
+
+  "gui.better_looting.config.mode.always": "总是显示",
+  "gui.better_looting.config.mode.look_down": "低头触发",
+  "gui.better_looting.config.mode.stand_still": "静止时显示",
+  "gui.better_looting.config.mode.key_hold": "按住显示",
+  "gui.better_looting.config.mode.key_toggle": "按键切换",
+
+  "gui.better_looting.config.tooltip.always": "只要附近有掉落物，HUD 就会一直显示",
+  "gui.better_looting.config.tooltip.look_down": "只有当视角向下超过设定的触发角度时，HUD 才会显示",
+  "gui.better_looting.config.tooltip.stand_still": "只有当你停止移动时，HUD 才会显示",
+  "gui.better_looting.config.tooltip.key_hold": "仅在按住指定按键时显示 HUD",
+  "gui.better_looting.config.tooltip.key_toggle": "按下指定按键来开启或关闭 HUD",
+
+  "gui.better_looting.config.key_info": "绑定按键: %s",
+  "gui.better_looting.config.key_unbound_hint": "(请在 选项 > 控制 中设置)",
+
+  "gui.better_looting.config.info.pos": "坐标: X=%s, Y=%s",
+  "gui.better_looting.config.info.size": "尺寸: 宽=%spx, 高=%s行",
+  "gui.better_looting.config.info.scale": "缩放: %sx",
+
+  "gui.better_looting.config.help.move": "拖动主体: 移动",
+  "gui.better_looting.config.help.resize": "拖动边缘: 调整大小",
+  "gui.better_looting.config.help.scale": "拖动角落: 缩放",
+
+  "gui.better_looting.config.scroll_mode": "滚轮模式",
+  "gui.better_looting.config.scroll.always": "总是可用",
+  "gui.better_looting.config.scroll.key_bind": "按键激活",
+  "gui.better_looting.config.scroll.stand_still": "静止激活",
+
+  "gui.better_looting.config.tooltip.scroll.always": "鼠标滚轮总是可以切换选中的掉落物",
+  "gui.better_looting.config.tooltip.scroll.key_bind": "仅在按住指定修饰键时，鼠标滚轮才能切换物品",
+  "gui.better_looting.config.tooltip.scroll.stand_still": "仅在停止移动时，鼠标滚轮才能切换物品",
+
+  "gui.better_looting.config.scroll_key_info": "滚轮修饰键: %s",
+
+  "gui.better_looting.config.tooltip.settings": "逻辑设置",
+
+  "gui.better_looting.conditions_title": "逻辑设置",
+  "gui.better_looting.header_condition": "浮悬窗显示条件",
+  "gui.better_looting.scroll_mode": "滚轮使用条件"
+
+}
