@@ -21,40 +21,68 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 客户端核心控制器 (Refactored).
+ * 客户端核心控制器 (单例模式)
  * <p>
- * 作为 MVC 模式中的 Controller/Model 混合体：
- * 1. 维护状态 (Model): 物品列表、选中索引、过滤模式。
- * 2. 响应事件 (Controller): 委托 LootScanner 进行计算，委托 PickupHandler 处理输入。
+ * 负责调度整个客户端的核心业务逻辑，基于 MVC 架构设计：
+ * <ul>
+ * <li><b>状态维护 (Model)</b>: 管理周围掉落物列表、选中索引、过滤模式和玩家背包缓存。</li>
+ * <li><b>事件响应 (Controller)</b>: 监听游戏 Tick 和玩家输入，并委托给 {@link LootScanner} 和 {@link PickupHandler} 处理。</li>
+ * </ul>
+ * </p>
+ *
+ * @author Mohuia
  */
 public class Core {
+    /** 全局唯一实例 */
     public static final Core INSTANCE = new Core();
 
-    public enum FilterMode { ALL, RARE_ONLY }
+    /** 物品过滤模式枚举 */
+    public enum FilterMode {
+        ALL,        // 显示所有物品
+        RARE_ONLY   // 仅显示稀有/特定物品
+    }
 
-    // --- 助手模块 ---
+    // =========================================
+    //               助手模块与核心数据
+    // =========================================
+
     private final PickupHandler pickupHandler = new PickupHandler();
 
-    // --- 核心数据 ---
+    /** 当前扫描到的周围掉落物实体列表 */
     private List<ItemEntity> nearbyItems = new ArrayList<>();
+    /** 玩家当前背包内的物品种类缓存（用于快速判断是否为已有物品） */
     private final Set<Item> cachedInventoryItems = new HashSet<>();
 
-    // --- UI 状态 ---
+    // =========================================
+    //               UI 与 控制状态
+    // =========================================
+
     private int selectedIndex = 0;
     private int targetScrollOffset = 0;
 
-    // --- 配置与控制 ---
     private FilterMode filterMode = FilterMode.ALL;
     private boolean isAutoMode = false;
-    private int tickCounter = 0;
-    private int scrollKeyHoldTime = 0; // 简单的辅助滚动计时，保留在此处即可
 
+    /** 游戏刻计数器，用于分散性能开销大的操作（如遍历背包） */
+    private int tickCounter = 0;
+    private int scrollKeyHoldTime = 0;
+
+    /**
+     * 私有构造函数，确保单例。
+     * <p>
+     * 注意：这里使用的是 {@code MinecraftForge.EVENT_BUS.register(this)}。
+     * 因为我们需要在非静态环境（实例方法）中监听 Forge 事件（如 TickEvent），
+     * 这与之前使用 {@code @Mod.EventBusSubscriber} 监听静态方法不同。
+     * </p>
+     */
     private Core() {
         MinecraftForge.EVENT_BUS.register(this);
         FilterWhitelist.INSTANCE.init();
     }
 
-    // --- Public API (供 HUD 渲染调用) ---
+    // =========================================
+    //               Public API (供 HUD 渲染)
+    // =========================================
 
     public List<ItemEntity> getNearbyItems() { return nearbyItems; }
     public int getSelectedIndex() { return selectedIndex; }
@@ -64,36 +92,46 @@ public class Core {
     public boolean isAutoMode() { return isAutoMode; }
     public boolean isItemInInventory(Item item) { return cachedInventoryItems.contains(item); }
 
+    /** 获取当前拾取进度 (用于 UI 动画) */
     public float getPickupProgress() {
         return hasItems() ? pickupHandler.getProgress() : 0.0f;
     }
 
+    /** 是否应该拦截原版交互逻辑（当模组正在处理拾取或列表不为空时） */
     public static boolean shouldIntercept() {
         return INSTANCE.hasItems() || INSTANCE.pickupHandler.isInteracting();
     }
 
-    // --- 事件循环 ---
+    // =========================================
+    //               事件循环核心逻辑
+    // =========================================
 
+    /**
+     * 客户端主循环处理
+     * @param event 客户端 Tick 事件
+     */
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
+        // 必须检查 Phase.END，否则每个游戏刻逻辑会执行两次 (START 和 END)
         if (event.phase != TickEvent.Phase.END) return;
 
-        // 1. 基础检查
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
             nearbyItems.clear();
             cachedInventoryItems.clear();
             return;
         }
+
+        // 打开配置界面时暂停处理逻辑
         if (mc.screen instanceof ConfigScreen) return;
 
-        // 2. 更新数据 (利用 LootScanner)
+        // 1. 数据更新：利用计数器每 10 tick (0.5秒) 更新一次背包缓存，极大优化性能
         tickCounter++;
         if (tickCounter % 10 == 0) updateInventoryCache(mc);
 
         this.nearbyItems = LootScanner.scan(mc, this.filterMode);
 
-        // 3. 处理自动拾取
+        // 2. 自动拾取逻辑
         if (isAutoMode && !nearbyItems.isEmpty()) {
             if (pickupHandler.canAutoPickup()) {
                 sendBatchPickup(nearbyItems, true);
@@ -102,20 +140,19 @@ public class Core {
             pickupHandler.resetAutoCooldown();
         }
 
-        // 4. 更新 UI 索引 (保证索引不越界)
+        // 3. 校验并钳制 UI 索引 (防止因为物品突然消失导致越界崩溃)
         validateSelection();
 
-        // 5. 处理玩家输入 (利用 PickupHandler)
+        // 4. 处理玩家输入
         handleInputLogic();
     }
 
+    /** 处理功能键和拾取动作输入 */
     private void handleInputLogic() {
-        // A. 功能键处理
         while (KeyInit.TOGGLE_FILTER.consumeClick()) toggleFilterMode();
         while (KeyInit.OPEN_CONFIG.consumeClick()) Minecraft.getInstance().setScreen(new ConfigScreen());
         while (KeyInit.TOGGLE_AUTO.consumeClick()) toggleAutoMode();
 
-        // B. 拾取键处理 (委托给 Handler)
         PickupHandler.PickupAction action = pickupHandler.tickInput(KeyInit.PICKUP.isDown(), !nearbyItems.isEmpty());
         switch (action) {
             case SINGLE:
@@ -128,12 +165,16 @@ public class Core {
                 break;
         }
 
-        // C. 键盘滚动处理
         handleKeyboardScroll();
     }
 
-    // --- 滚动与选择逻辑 ---
+    // =========================================
+    //               滚动与视图逻辑
+    // =========================================
 
+    /**
+     * 拦截鼠标滚轮事件，用于控制物品列表滚动。
+     */
     @SubscribeEvent
     public void onMouseScroll(InputEvent.MouseScrollingEvent event) {
         if (shouldIgnoreScroll()) return;
@@ -141,10 +182,12 @@ public class Core {
         double scrollDelta = event.getScrollDelta();
         if (scrollDelta != 0) {
             performScroll(scrollDelta);
+            // 关键：取消事件，防止在滚动模组列表时玩家快捷栏也跟着滚动
             event.setCanceled(true);
         }
     }
 
+    /** 检查是否应忽略当前的滚动事件，交还给原版处理 */
     private boolean shouldIgnoreScroll() {
         if (Minecraft.getInstance().screen instanceof ConfigScreen) return true;
         if (nearbyItems.size() <= 1) return true;
@@ -156,6 +199,7 @@ public class Core {
         if (mode == Config.ScrollMode.STAND_STILL) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return true;
+            // 简单的移动判定：比较当前坐标与上一刻(xo, zo)坐标的位移平方
             double dx = mc.player.getX() - mc.player.xo;
             double dz = mc.player.getZ() - mc.player.zo;
             return (dx * dx + dz * dz) >= 0.0001;
@@ -166,14 +210,16 @@ public class Core {
     private void performScroll(double delta) {
         if (nearbyItems.size() <= 1) return;
         selectedIndex += (delta > 0) ? -1 : 1;
-        validateSelection(); // 所有的循环和越界逻辑都在这里统一处理
+        validateSelection();
     }
 
+    /** 处理通过按键触发的滚动 (支持长按连发) */
     private void handleKeyboardScroll() {
         boolean up = KeyInit.SCROLL_UP.isDown();
         boolean down = KeyInit.SCROLL_DOWN.isDown();
         if (up || down) {
             scrollKeyHoldTime++;
+            // 首次按下立即触发，之后每 3 tick 触发一次以实现快速滚动
             if (scrollKeyHoldTime == 1 || (scrollKeyHoldTime > 10 && scrollKeyHoldTime % 3 == 0)) {
                 performScroll(up ? 1.0 : -1.0);
             }
@@ -182,7 +228,8 @@ public class Core {
         }
     }
 
-    /** 统一处理索引越界、循环滚动和 ScrollOffset 计算 */
+    /** * 统一处理索引越界、循环滚动和视口偏移量 (ScrollOffset) 的计算。
+     */
     private void validateSelection() {
         if (nearbyItems.isEmpty()) {
             selectedIndex = 0;
@@ -190,64 +237,71 @@ public class Core {
             return;
         }
 
-        // 循环滚动逻辑
+        // 1. 循环滚动边界处理
         if (selectedIndex < 0) selectedIndex = nearbyItems.size() - 1;
         if (selectedIndex >= nearbyItems.size()) selectedIndex = 0;
 
-        // 计算 Offset
-        // 1. 获取 double 类型的值，保留小数 (例如 3.5)
-        double visibleRows = Config.CLIENT.visibleRows.get();
-        if (visibleRows < 1.0) visibleRows = 1.0;
+        double visibleRows = Math.max(1.0, Config.CLIENT.visibleRows.get());
 
-        // 如果物品总数比可见行数还少，不需要滚动
+        // 如果物品总数小于等于可见行数，无需计算视口偏移
         if (nearbyItems.size() <= visibleRows) {
             targetScrollOffset = 0;
             return;
         }
 
-        // 2. 向下滚动判断
-        // 如果选中的索引超出了当前 "Offset + 可见行数" 的范围
+        // 2. 向下滚动视口推移
+        // 逻辑：如果选中项超出了视口底部，则推移视口让选中项显示在最底部
         if (selectedIndex >= targetScrollOffset + visibleRows) {
-            // 计算新的 Offset，通过 (int) 强制转换去掉小数部分
-            // 逻辑：让选中的物品出现在列表的最底部
             targetScrollOffset = (int) (selectedIndex - visibleRows + 1);
         }
 
-        // 3. 向上滚动判断 (逻辑不变，依然是比较整数)
+        // 3. 向上滚动视口推移
+        // 逻辑：如果选中项超出了视口顶部，则推移视口让选中项显示在最顶部
         if (selectedIndex < targetScrollOffset) {
             targetScrollOffset = selectedIndex;
         }
 
         // 4. 边界钳制 (Clamp)
-        // 计算最大允许的滚动偏移量，防止底部留白太多
+        // 限制最大偏移量，防止列表向上滚动过度导致底部留白
         int maxOffset = (int) Math.max(0, nearbyItems.size() - visibleRows);
         targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxOffset));
     }
 
-    // --- 网络与辅助 ---
+    // =========================================
+    //               网络发包与状态切换
+    // =========================================
 
+    /** 向服务端发送单次拾取请求 */
     private void sendSinglePickup() {
         if (selectedIndex >= 0 && selectedIndex < nearbyItems.size()) {
             ItemEntity target = nearbyItems.get(selectedIndex);
             if (target.isAlive()) {
+                // 仅发送实体的网络 ID，由服务端处理安全校验和背包转移
                 NetworkHandler.sendToServer(new PacketPickupItem(target.getId()));
             }
         }
     }
 
+    /** * 向服务端发送批量拾取请求
+     * @param entities 目标实体列表
+     * @param isAuto   是否是由自动拾取触发
+     */
     private void sendBatchPickup(List<ItemEntity> entities, boolean isAuto) {
         List<Integer> ids = entities.stream()
                 .filter(ItemEntity::isAlive)
                 .map(ItemEntity::getId)
                 .collect(Collectors.toList());
+
         if (!ids.isEmpty()) {
             NetworkHandler.sendToServer(new PacketBatchPickup(ids, isAuto));
         }
     }
 
+    /** 更新背包缓存数据 */
     private void updateInventoryCache(Minecraft mc) {
         cachedInventoryItems.clear();
         if (mc.player == null) return;
+
         mc.player.getInventory().items.forEach(s -> { if(!s.isEmpty()) cachedInventoryItems.add(s.getItem()); });
         mc.player.getInventory().offhand.forEach(s -> { if(!s.isEmpty()) cachedInventoryItems.add(s.getItem()); });
         mc.player.getInventory().armor.forEach(s -> { if(!s.isEmpty()) cachedInventoryItems.add(s.getItem()); });
@@ -261,8 +315,10 @@ public class Core {
     public void toggleAutoMode() {
         isAutoMode = !isAutoMode;
         pickupHandler.resetAutoCooldown();
+
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
+            // 在玩家聊天栏上方发送带颜色的提示信息 (Action Bar 消息可能更好，但这里尊重原逻辑)
             Component msg = isAutoMode
                     ? Component.translatable("message.better_looting.auto_on").withStyle(ChatFormatting.GREEN)
                     : Component.translatable("message.better_looting.auto_off").withStyle(ChatFormatting.RED);

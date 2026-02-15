@@ -3,17 +3,24 @@ package com.mohuia.better_looting.config;
 import com.mohuia.better_looting.client.Constants;
 import net.minecraft.util.Mth;
 
+/**
+ * 配置视图模型 (ViewModel)。
+ * <p>
+ * <b>作用：</b>
+ * 1. 暂存用户的修改（在用户点击 "保存" 前不写入硬盘）。
+ * 2. 负责将 GUI 操作（如鼠标拖动像素距离）转换为配置数值。
+ * 3. 将渲染逻辑与数据逻辑解耦。
+ */
 public class ConfigViewModel {
-    public double xOffset;
-    public double yOffset;
-    public double uiScale;
+    // 暂存的配置数据
+    public double xOffset, yOffset, uiScale;
     public int panelWidth;
-    public double visibleRows;
-    public double globalAlpha;
+    public double visibleRows, globalAlpha;
     public Config.ActivationMode activationMode;
     public Config.ScrollMode scrollMode;
     public double lookDownAngle;
 
+    // 拖拽操作开始时的快照数据
     private double initX, initY, initScale, initRows;
     private int initWidth;
 
@@ -21,6 +28,7 @@ public class ConfigViewModel {
         loadFromConfig();
     }
 
+    /** 从 Config 中加载当前值到内存 */
     public void loadFromConfig() {
         this.xOffset = Config.CLIENT.xOffset.get();
         this.yOffset = Config.CLIENT.yOffset.get();
@@ -33,6 +41,7 @@ public class ConfigViewModel {
         this.lookDownAngle = Config.CLIENT.lookDownAngle.get();
     }
 
+    /** 将暂存的数据写入配置文件并刷新缓存 */
     public void saveToConfig() {
         Config.CLIENT.xOffset.set(xOffset);
         Config.CLIENT.yOffset.set(yOffset);
@@ -45,7 +54,7 @@ public class ConfigViewModel {
         Config.CLIENT.lookDownAngle.set(lookDownAngle);
 
         Config.CLIENT_SPEC.save();
-        Config.Baked.refresh();
+        Config.Baked.refresh(); // 强制刷新 Baked 缓存，让游戏内立即生效
     }
 
     public void resetToDefault() {
@@ -62,6 +71,10 @@ public class ConfigViewModel {
 
     public record PreviewBounds(float left, float top, float right, float bottom) {}
 
+    /**
+     * 计算预览框在屏幕上的绝对边界（像素）。
+     * 考虑了 xOffset, yOffset 以及 uiScale 的影响。
+     */
     public PreviewBounds calculatePreviewBounds(int screenWidth, int screenHeight) {
         float baseX = (float) (screenWidth / 2.0f + this.xOffset);
         float baseY = (float) (screenHeight / 2.0f + this.yOffset);
@@ -69,9 +82,10 @@ public class ConfigViewModel {
 
         float itemHeight = Constants.ITEM_HEIGHT;
         float startY = -(itemHeight / 2);
-        float localMinY = startY - 14;
+        float localMinY = startY - 14; // 包含标题栏的高度
         float localHeight = (float) ((this.visibleRows * (itemHeight + 2)) + 14);
 
+        // 将局部坐标转换为屏幕坐标
         float left = baseX + (Constants.LIST_X * scale);
         float right = left + (this.panelWidth * scale);
         float top = baseY + (localMinY * scale);
@@ -80,6 +94,7 @@ public class ConfigViewModel {
         return new PreviewBounds(left, top, right, bottom);
     }
 
+    /** 开始拖拽时捕获快照 */
     public void captureSnapshot() {
         this.initX = xOffset;
         this.initY = yOffset;
@@ -88,12 +103,15 @@ public class ConfigViewModel {
         this.initRows = visibleRows;
     }
 
+    // --- 更新逻辑 ---
+
     public void updatePosition(double deltaX, double deltaY) {
         this.xOffset = initX + deltaX;
         this.yOffset = initY + deltaY;
     }
 
     public void updateWidth(double deltaX) {
+        // 宽度变化需要除以缩放比例，否则在不同缩放倍率下拖拽速度不一致
         double scaledDelta = deltaX / initScale;
         this.panelWidth = (int) Mth.clamp(initWidth + scaledDelta, 100, 500);
     }
@@ -106,6 +124,7 @@ public class ConfigViewModel {
     }
 
     public void updateScale(double deltaX, double deltaY) {
+        // 右下角拖拽同时受 X 和 Y 变化影响
         this.uiScale = Mth.clamp(initScale + (deltaX + deltaY) * 0.005, 0.1, 6.0);
     }
 }

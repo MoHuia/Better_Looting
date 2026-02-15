@@ -15,17 +15,24 @@ import net.minecraftforge.client.gui.widget.ForgeSlider;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+/**
+ * 详细条件配置子界面。
+ * <p>
+ * 用于配置激活模式（如：总是显示、按键切换、低头显示）和滚动模式。
+ * 采用双栏布局设计。
+ */
 public class ConditionsScreen extends Screen {
 
     private final Screen parent;
     private final ConfigViewModel viewModel;
 
+    // --- 布局常量 ---
     private static final int COLUMN_WIDTH = 160;
     private static final int BTN_HEIGHT = 20;
     private static final int BTN_GAP = 5;
     private static final int PADDING = 15;
 
-    // Keys matching zh_cn.json / en_us.json
+    // --- 文本组件缓存 ---
     private static final Component TITLE = translatable("conditions_title");
     private static final Component HEADER_ACTIVATION = translatable("header_condition");
     private static final Component HEADER_SCROLL = translatable("scroll_mode");
@@ -43,23 +50,35 @@ public class ConditionsScreen extends Screen {
         int threeQuarterWidth = (this.width / 4) * 3;
         int listStartY = 60;
 
-        // 1. Activation Mode Column
+        // 1. 构建左侧 "激活模式" 列
         buildEnumColumn(quarterWidth, listStartY,
                 ActivationMode.values(), viewModel.activationMode,
                 (mode) -> viewModel.activationMode = mode,
                 this::getModeName, this::getModeTooltip);
 
-        // 2. Scroll Mode Column
+        // 2. 构建右侧 "滚动模式" 列
         buildEnumColumn(threeQuarterWidth, listStartY,
                 ScrollMode.values(), viewModel.scrollMode,
                 (mode) -> viewModel.scrollMode = mode,
                 this::getScrollModeName, this::getScrollModeTooltip);
 
-        // Done Button
+        // "完成" 按钮 (返回上一级)
         this.addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, b -> this.minecraft.setScreen(parent))
                 .bounds(this.width / 2 - 100, this.height - 30, 200, 20).build());
     }
 
+    /**
+     * 通用的枚举按钮列构建器。
+     * <p>
+     * 使用泛型 {@code <T>} 自动为每个枚举值生成一个按钮，选中项会高亮显示。
+     * * @param centerX 列的中心 X 坐标
+     * @param startY 起始 Y 坐标
+     * @param values 枚举值数组
+     * @param current 当前选中的值
+     * @param setter 当按钮点击时更新 ViewModel 的回调
+     * @param nameProvider 获取枚举显示名称的函数
+     * @param tooltipProvider 获取枚举提示信息的函数
+     */
     private <T extends Enum<T>> void buildEnumColumn(int centerX, int startY, T[] values, T current,
                                                      Consumer<T> setter,
                                                      Function<T, Component> nameProvider,
@@ -69,9 +88,11 @@ public class ConditionsScreen extends Screen {
 
         for (T mode : values) {
             boolean isSelected = (mode == current);
+
+            // 构建按钮
             Button btn = Button.builder(formatOptionText(nameProvider.apply(mode), isSelected), b -> {
                         setter.accept(mode);
-                        this.rebuildWidgets();
+                        this.rebuildWidgets(); // 重建界面以更新选中状态高亮
                     })
                     .bounds(x, currentY, COLUMN_WIDTH, BTN_HEIGHT)
                     .tooltip(tooltipProvider.apply(mode))
@@ -79,7 +100,7 @@ public class ConditionsScreen extends Screen {
             this.addRenderableWidget(btn);
             currentY += BTN_HEIGHT + BTN_GAP;
 
-            // Slider Logic for LOOK_DOWN
+            // 特殊逻辑：如果选中了 LOOK_DOWN 模式，额外显示一个角度滑块
             if (mode instanceof ActivationMode && mode == ActivationMode.LOOK_DOWN && isSelected) {
                 this.addRenderableWidget(new ForgeSlider(
                         x + 10, currentY, COLUMN_WIDTH - 10, BTN_HEIGHT,
@@ -93,6 +114,7 @@ public class ConditionsScreen extends Screen {
         }
     }
 
+    /** 格式化按钮文本：选中状态添加绿色勾选标记 */
     private Component formatOptionText(Component text, boolean selected) {
         return selected
                 ? Component.literal("[✔] ").withStyle(net.minecraft.ChatFormatting.GREEN).append(text.copy().withStyle(net.minecraft.ChatFormatting.GREEN))
@@ -109,14 +131,18 @@ public class ConditionsScreen extends Screen {
         int topY = 50;
         int bottomY = this.height - 40;
 
+        // 绘制两列的背景板和标题
         renderColumnBackground(gui, quarterWidth, topY, bottomY, HEADER_ACTIVATION);
         renderColumnBackground(gui, threeQuarterWidth, topY, bottomY, HEADER_SCROLL);
 
+        // 如果涉及按键绑定，显示当前绑定的按键信息
         renderKeyInfo(gui, quarterWidth, bottomY, viewModel.activationMode);
         renderKeyInfo(gui, threeQuarterWidth, bottomY, viewModel.scrollMode);
 
         super.render(gui, mouseX, mouseY, partialTick);
     }
+
+    // ... (renderKeyInfo, drawKeyString 等辅助渲染方法逻辑保持简洁，无需过多注释)
 
     private void renderKeyInfo(GuiGraphics gui, int centerX, int bottomY, Enum<?> mode) {
         if (mode instanceof ActivationMode m && (m == ActivationMode.KEY_HOLD || m == ActivationMode.KEY_TOGGLE)) {
@@ -135,15 +161,14 @@ public class ConditionsScreen extends Screen {
     private void renderColumnBackground(GuiGraphics gui, int centerX, int topY, int bottomY, Component header) {
         int halfW = (COLUMN_WIDTH / 2) + PADDING;
         gui.fill(centerX - halfW, topY, centerX + halfW, bottomY, 0x60000000);
-        gui.fill(centerX - halfW, topY, centerX + halfW, topY + 1, 0x80FFFFFF);
-        gui.fill(centerX - halfW, bottomY - 1, centerX + halfW, bottomY, 0x80FFFFFF);
+        gui.fill(centerX - halfW, topY, centerX + halfW, topY + 1, 0x80FFFFFF); // 顶部分割线
+        gui.fill(centerX - halfW, bottomY - 1, centerX + halfW, bottomY, 0x80FFFFFF); // 底部分割线
         gui.drawCenteredString(this.font, header, centerX, topY - 12, 0xFFFFAA00);
     }
 
-    // --- Switch Expressions matching JSON keys ---
+    // --- 文本获取辅助方法 ---
 
     private Component getModeName(ActivationMode mode) {
-        // gui.better_looting.config.mode.[lowercase]
         return translatable("config.mode." + mode.name().toLowerCase());
     }
 
@@ -152,7 +177,6 @@ public class ConditionsScreen extends Screen {
     }
 
     private Component getScrollModeName(ScrollMode mode) {
-        // gui.better_looting.config.scroll.[lowercase]
         return translatable("config.scroll." + mode.name().toLowerCase());
     }
 

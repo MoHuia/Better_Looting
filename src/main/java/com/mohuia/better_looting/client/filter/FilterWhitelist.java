@@ -22,15 +22,25 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * 过滤白名单管理器
+ * <p>
+ * 负责管理玩家选定的过滤物品，并将其持久化存储到 JSON 配置文件中。
+ * 支持严格的 NBT 匹配。
+ * </p>
+ */
 public class FilterWhitelist {
     public static final FilterWhitelist INSTANCE = new FilterWhitelist();
     private static final Logger LOGGER = LogManager.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    // 使用自定义 Entry 类来存储 ID 和 NBT
+    // 使用自定义 Entry 类来存储 ID 和 NBT，确保 Set 去重逻辑正确
     private final Set<WhitelistEntry> entries = new LinkedHashSet<>();
     private Path configPath;
 
+    /**
+     * 初始化配置文件路径并加载数据
+     */
     public void init() {
         Path configDir = Minecraft.getInstance().gameDirectory.toPath().resolve("config").resolve("better_looting");
         try {
@@ -43,7 +53,8 @@ public class FilterWhitelist {
     }
 
     /**
-     * 添加物品（包含 NBT）
+     * 添加物品到白名单（包含 NBT 数据）
+     * @param stack 要添加的物品栈
      */
     public void add(ItemStack stack) {
         if (stack.isEmpty()) return;
@@ -61,7 +72,7 @@ public class FilterWhitelist {
     }
 
     /**
-     * 移除物品（必须 NBT 也匹配）
+     * 从白名单移除物品（必须 ID 和 NBT 均匹配）
      */
     public void remove(ItemStack stack) {
         if (stack.isEmpty()) return;
@@ -77,6 +88,9 @@ public class FilterWhitelist {
         }
     }
 
+    /**
+     * 清空所有白名单数据
+     */
     public void clear() {
         if (entries.isEmpty()) return;
         entries.clear();
@@ -85,11 +99,13 @@ public class FilterWhitelist {
 
     /**
      * 检查白名单是否包含该物品（严格比对 NBT）
+     * @param stack 待检查物品
+     * @return true 如果存在于白名单中
      */
     public boolean contains(ItemStack stack) {
         if (stack.isEmpty()) return false;
 
-        // 快速检查
+        // 遍历检查
         for (WhitelistEntry entry : entries) {
             if (entry.matches(stack)) {
                 return true;
@@ -99,8 +115,11 @@ public class FilterWhitelist {
     }
 
     /**
-     * 获取用于显示的 Item 列表 (仅用于 GUI 渲染)
-     * 注意：这会为每个 Entry 创建一个新的 ItemStack，包含 NBT
+     * 获取用于 GUI 显示的 ItemStack 列表。
+     * <p>
+     * 注意：此方法会为每个 Entry 重新创建 ItemStack 实例，建议仅在渲染循环外调用或缓存结果。
+     * </p>
+     * @return 包含 NBT 数据的物品集合
      */
     public Set<ItemStack> getDisplayItems() {
         Set<ItemStack> stacks = new LinkedHashSet<>();
@@ -136,6 +155,9 @@ public class FilterWhitelist {
 
     // --- 内部数据类 ---
 
+    /**
+     * 序列化辅助类，用于 JSON 存储和哈希比对
+     */
     public static class WhitelistEntry {
         public String id;
         public String nbt; // 存储 NBT 的字符串形式
@@ -147,6 +169,9 @@ public class FilterWhitelist {
             this.nbt = nbt;
         }
 
+        /**
+         * 判断给定 ItemStack 是否与此条目匹配
+         */
         public boolean matches(ItemStack stack) {
             ResourceLocation stackId = ForgeRegistries.ITEMS.getKey(stack.getItem());
             if (stackId == null || !stackId.toString().equals(this.id)) {
@@ -165,6 +190,9 @@ public class FilterWhitelist {
             }
         }
 
+        /**
+         * 根据 ID 和 NBT 字符串重建 ItemStack
+         */
         public ItemStack createStack() {
             ResourceLocation loc = ResourceLocation.tryParse(id);
             if (loc == null || !ForgeRegistries.ITEMS.containsKey(loc)) return ItemStack.EMPTY;
