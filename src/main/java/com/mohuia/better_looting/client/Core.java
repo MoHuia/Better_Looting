@@ -32,7 +32,7 @@ public class Core {
     private static final double PICKUP_EXPAND_XZ = 1.0;
     private static final double PICKUP_EXPAND_Y = 0.5;
 
-    private static final int LONG_PRESS_THRESHOLD = 15; // 长按阈值 (ticks)
+    private static final int LONG_PRESS_THRESHOLD = 15;
 
     // 核心数据
     private List<ItemEntity> nearbyItems = new ArrayList<>();
@@ -55,7 +55,6 @@ public class Core {
     // 按键滚动计时器
     private int scrollKeyHoldTime = 0;
 
-    // 排序器：稀有度 > 附魔 > 名字 > ID
     private final Comparator<ItemEntity> stableComparator = (e1, e2) -> {
         ItemStack s1 = e1.getItem();
         ItemStack s2 = e2.getItem();
@@ -166,7 +165,6 @@ public class Core {
             toggleAutoMode();
         }
 
-        // 按键滚动逻辑 (支持长按连发)
         boolean upDown = KeyInit.SCROLL_UP.isDown();
         boolean downDown = KeyInit.SCROLL_DOWN.isDown();
 
@@ -174,9 +172,9 @@ public class Core {
             scrollKeyHoldTime++;
             if (scrollKeyHoldTime == 1 || (scrollKeyHoldTime > 10 && scrollKeyHoldTime % 3 == 0)) {
                 if (upDown) {
-                    performScroll(1.0); // 向上
+                    performScroll(1.0);
                 } else {
-                    performScroll(-1.0); // 向下
+                    performScroll(-1.0);
                 }
             }
         } else {
@@ -186,63 +184,48 @@ public class Core {
 
     @SubscribeEvent
     public void onScroll(InputEvent.MouseScrollingEvent event) {
-        // 如果在配置界面，不允许 HUD 滚动
         if (Minecraft.getInstance().screen instanceof ConfigScreen) return;
-
-        // 如果列表为空或只有一个，不进行滚动拦截，允许原版行为
         if (nearbyItems.size() <= 1) return;
-
-        // Shift 按下时通常保留原版功能（如潜行等），不拦截
         if (Screen.hasShiftDown()) return;
 
-        // --- [修改] 滚轮模式冲突判断逻辑 ---
         Config.ScrollMode mode = Config.CLIENT.scrollMode.get();
         boolean allowHudScroll = false;
 
         switch (mode) {
             case ALWAYS:
-                // 默认：只要 HUD 有内容就允许
                 allowHudScroll = true;
                 break;
             case KEY_BIND:
-                // 特定按键：只有按下修饰键时才允许 HUD 滚动
                 allowHudScroll = KeyInit.SCROLL_MODIFIER.isDown();
                 break;
             case STAND_STILL:
-                // 静止模式：检测玩家是否移动
                 Minecraft mc = Minecraft.getInstance();
                 if (mc.player != null) {
                     double dx = mc.player.getX() - mc.player.xo;
                     double dz = mc.player.getZ() - mc.player.zo;
-                    // 速度平方很小则视为静止
                     allowHudScroll = (dx * dx + dz * dz) < 0.0001;
                 }
                 break;
         }
 
-        // 如果条件不满足（比如要静止但玩家在跑，或者没按修饰键），则 return，
-        // 让事件继续传递给 Minecraft 原版处理（切换快捷栏）。
         if (!allowHudScroll) return;
-        // ------------------------------------
 
         double scrollDelta = event.getScrollDelta();
         if (scrollDelta != 0) {
             performScroll(scrollDelta);
-            event.setCanceled(true); // 拦截事件，防止物品栏切换
+            event.setCanceled(true);
         }
     }
 
-    // 通用滚动逻辑
     private void performScroll(double scrollDelta) {
         if (nearbyItems.size() <= 1) return;
 
         if (scrollDelta > 0) {
-            selectedIndex--; // 向上/前
+            selectedIndex--;
         } else {
-            selectedIndex++; // 向下/后
+            selectedIndex++;
         }
 
-        // 循环索引
         if (selectedIndex < 0) selectedIndex = nearbyItems.size() - 1;
         if (selectedIndex >= nearbyItems.size()) selectedIndex = 0;
 
@@ -265,22 +248,22 @@ public class Core {
 
         tickCounter++;
 
-        // 1. 更新背包缓存
         if (tickCounter % 10 == 0) {
             updateInventoryCache(mc);
         }
 
-        // 2. 扫描实体
         AABB area = mc.player.getBoundingBox().inflate(PICKUP_EXPAND_XZ, PICKUP_EXPAND_Y, PICKUP_EXPAND_XZ);
         List<ItemEntity> found = mc.level.getEntitiesOfClass(ItemEntity.class, area, entity ->
                 entity.isAlive() && !entity.getItem().isEmpty()
         );
 
-        // 3. 执行过滤
+        // 核心过滤逻辑修改
         if (filterMode == FilterMode.RARE_ONLY) {
             found.removeIf(entity -> {
                 ItemStack stack = entity.getItem();
-                if (FilterWhitelist.INSTANCE.contains(stack.getItem())) return false;
+
+                // 检查白名单 (现在支持完整 NBT)
+                if (FilterWhitelist.INSTANCE.contains(stack)) return false;
 
                 return stack.getRarity() == Rarity.COMMON
                         && !stack.isEnchanted()
@@ -288,7 +271,6 @@ public class Core {
             });
         }
 
-        // 4. 执行自动拾取
         if (isAutoMode && !found.isEmpty()) {
             if (autoPickupCooldown > 0) {
                 autoPickupCooldown--;
@@ -300,11 +282,9 @@ public class Core {
             autoPickupCooldown = 0;
         }
 
-        // 5. 排序
         found.sort(stableComparator);
         nearbyItems = found;
 
-        // 6. 索引安全检查
         if (nearbyItems.isEmpty()) {
             selectedIndex = 0;
             targetScrollOffset = 0;
@@ -313,7 +293,6 @@ public class Core {
             updateScrollOffset();
         }
 
-        // 7. 处理长按/短按逻辑
         handlePickupLogic();
     }
 

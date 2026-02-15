@@ -5,7 +5,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.util.Mth;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -20,34 +19,32 @@ public class FilterPanel {
     private static final int ROWS = 5;
     private static final int SLOT_SIZE = 18;
     private static final int GAP = 1;
-    // PADDING 设为 0，让按钮和格子对齐更整齐
     private static final int PADDING = 0;
-
     private static final int SCROLLBAR_WIDTH = 4;
-    // 【修改】增加一点按钮高度，让文字垂直居中更舒服
     private static final int BUTTON_HEIGHT = 14;
     private static final int BUTTON_GAP = 3;
 
-    // 面板总宽
     private static final int PANEL_WIDTH = SCROLLBAR_WIDTH + COLS * SLOT_SIZE + (COLS - 1) * GAP;
-    // 面板总高
     private static final int PANEL_HEIGHT = BUTTON_HEIGHT + BUTTON_GAP + ROWS * SLOT_SIZE + (ROWS - 1) * GAP;
 
     public static void toggle() {
         isOpen = !isOpen;
     }
 
+    /**
+     * 【新增】强制关闭面板
+     */
+    public static void close() {
+        isOpen = false;
+    }
+
     public static boolean isOpen() {
         return isOpen;
     }
 
-    /**
-     * 在 ScreenEvent.Render.Post 中调用
-     */
     public static void render(GuiGraphics gui, int mouseX, int mouseY, AbstractContainerScreen<?> screen) {
         if (!isOpen) return;
 
-        // 1. 定位
         int guiLeft = (screen.width - 176) / 2;
         try {
             guiLeft = (screen.width / 2) - 88 - PANEL_WIDTH - 4;
@@ -56,33 +53,25 @@ public class FilterPanel {
         int startX = Math.max(4, guiLeft);
         int startY = (screen.height - PANEL_HEIGHT) / 2;
 
-        // 2. 绘制 "Clear All" 按钮 (美化版)
+        // Draw Clear Button
         int btnY = startY;
         boolean isHoveringBtn = mouseX >= startX && mouseX < startX + PANEL_WIDTH && mouseY >= btnY && mouseY < btnY + BUTTON_HEIGHT;
-
-        // 【核心美化】
-        // 悬停时：红底 + 亮红框 + 白字
-        // 平时：半透明黑底 + 深灰框 + 灰字
         int bgColor = isHoveringBtn ? 0xCC990000 : 0xAA222222;
         int borderColor = isHoveringBtn ? 0xFFFF5555 : 0xFF444444;
         int textColor = isHoveringBtn ? 0xFFFFFFFF : 0xFFAAAAAA;
 
-        // 绘制按钮背景
         gui.fill(startX, btnY, startX + PANEL_WIDTH, btnY + BUTTON_HEIGHT, bgColor);
-        // 绘制按钮边框 (看起来更精致)
         gui.renderOutline(startX, btnY, PANEL_WIDTH, BUTTON_HEIGHT, borderColor);
-
-        // 绘制文字 (自动计算垂直居中：高度差 / 2)
         gui.drawCenteredString(Minecraft.getInstance().font, "Clear", startX + PANEL_WIDTH / 2, btnY + (BUTTON_HEIGHT - 8) / 2, textColor);
 
-        // 3. 准备物品数据
-        List<Item> items = new ArrayList<>(FilterWhitelist.INSTANCE.getItems());
+        // Prepare Items
+        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
         int totalRows = (int) Math.ceil((double) items.size() / COLS);
         if (items.size() % COLS == 0 || items.isEmpty()) totalRows++;
 
         int maxScroll = Math.max(0, totalRows - ROWS);
 
-        // 4. 绘制格子
+        // Draw Grid
         int gridStartY = startY + BUTTON_HEIGHT + BUTTON_GAP;
         int currentScrollRow = (int) Math.floor(scrollOffset);
 
@@ -103,18 +92,15 @@ public class FilterPanel {
                 int x = startX + SCROLLBAR_WIDTH + c * (SLOT_SIZE + GAP);
                 int y = gridStartY + r * (SLOT_SIZE + GAP);
 
-                // 格子背景
                 gui.fill(x, y, x + SLOT_SIZE, y + SLOT_SIZE, 0xFF333333);
                 gui.renderOutline(x, y, SLOT_SIZE, SLOT_SIZE, 0xFF777777);
 
                 if (index < items.size()) {
-                    Item item = items.get(index);
-                    ItemStack stack = new ItemStack(item);
+                    ItemStack stack = items.get(index);
                     gui.renderItem(stack, x + 1, y + 1);
 
                     if (isHovering(mouseX, mouseY, x, y, SLOT_SIZE, SLOT_SIZE)) {
                         gui.fill(x + 1, y + 1, x + SLOT_SIZE - 1, y + SLOT_SIZE - 1, 0x80FF0000);
-
                         RenderSystem.disableScissor();
                         gui.renderTooltip(Minecraft.getInstance().font, stack, mouseX, mouseY);
                         if (scH > 0) RenderSystem.enableScissor((int)(startX * guiScale), scY, (int)(PANEL_WIDTH * guiScale), scH);
@@ -126,7 +112,7 @@ public class FilterPanel {
         }
         RenderSystem.disableScissor();
 
-        // 5. 绘制左侧滚动条 (极细版)
+        // Draw Scrollbar
         if (maxScroll > 0) {
             int barX = startX;
             int barY = gridStartY;
@@ -140,9 +126,6 @@ public class FilterPanel {
         }
     }
 
-    /**
-     * 处理点击事件
-     */
     public static boolean click(double mouseX, double mouseY, AbstractContainerScreen<?> screen) {
         if (!isOpen) return false;
 
@@ -154,14 +137,14 @@ public class FilterPanel {
             return false;
         }
 
-        // --- 检测按钮点击 ---
+        // Button Click
         if (mouseY >= startY && mouseY < startY + BUTTON_HEIGHT) {
             FilterWhitelist.INSTANCE.clear();
             Minecraft.getInstance().player.playSound(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.get(), 1.0f, 1.0f);
             return true;
         }
 
-        // --- 检测格子点击 ---
+        // Grid Click
         double gridStartY = startY + BUTTON_HEIGHT + BUTTON_GAP;
         double relX = mouseX - (startX + SCROLLBAR_WIDTH);
         double relY = mouseY - gridStartY;
@@ -174,7 +157,7 @@ public class FilterPanel {
         if (col >= COLS || row >= ROWS) return true;
 
         int dataIndex = ((int)scrollOffset + row) * COLS + col;
-        List<Item> items = new ArrayList<>(FilterWhitelist.INSTANCE.getItems());
+        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
         ItemStack cursorStack = Minecraft.getInstance().player.containerMenu.getCarried();
 
         if (dataIndex < items.size()) {
@@ -184,7 +167,7 @@ public class FilterPanel {
             }
         } else {
             if (!cursorStack.isEmpty()) {
-                FilterWhitelist.INSTANCE.add(cursorStack.getItem());
+                FilterWhitelist.INSTANCE.add(cursorStack);
                 Minecraft.getInstance().player.playSound(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.get(), 1.0f, 1.0f);
             }
         }
@@ -194,7 +177,7 @@ public class FilterPanel {
 
     public static boolean scroll(double delta) {
         if (!isOpen) return false;
-        List<Item> items = new ArrayList<>(FilterWhitelist.INSTANCE.getItems());
+        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
         int totalRows = (int) Math.ceil((double) items.size() / COLS);
         if (items.size() % COLS == 0) totalRows++;
         int maxScroll = Math.max(0, totalRows - ROWS);

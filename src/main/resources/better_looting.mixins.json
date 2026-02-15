@@ -2,7 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.mohuia.better_looting.mixin",
-  "refmap": "immersive_looting.refmap.json",
+  "refmap": "better_looting.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "MixinMinecraft"

@@ -4,17 +4,22 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.Minecraft;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 
 public class FilterWhitelist {
@@ -22,10 +27,8 @@ public class FilterWhitelist {
     private static final Logger LOGGER = LogManager.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    // 使用 LinkedHashSet 保持插入顺序
-    private final Set<String> whitelistIds = new LinkedHashSet<>();
-    private final Set<Item> itemCache = new LinkedHashSet<>();
-
+    // 使用自定义 Entry 类来存储 ID 和 NBT
+    private final Set<WhitelistEntry> entries = new LinkedHashSet<>();
     private Path configPath;
 
     public void init() {
@@ -39,46 +42,80 @@ public class FilterWhitelist {
         }
     }
 
-    public void add(Item item) {
-        if (item == Items.AIR) return;
-        ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
-        if (id != null) {
-            whitelistIds.add(id.toString());
-            itemCache.add(item);
-            save();
-        }
-    }
+    /**
+     * 添加物品（包含 NBT）
+     */
+    public void add(ItemStack stack) {
+        if (stack.isEmpty()) return;
 
-    public void remove(Item item) {
-        ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
         if (id != null) {
-            whitelistIds.remove(id.toString());
-            itemCache.remove(item);
-            save();
+            // 获取 NBT 字符串，如果没有 NBT 则为 null
+            String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
+            WhitelistEntry entry = new WhitelistEntry(id.toString(), nbtStr);
+
+            if (entries.add(entry)) {
+                save();
+            }
         }
     }
 
     /**
-     * 清空所有白名单
+     * 移除物品（必须 NBT 也匹配）
      */
+    public void remove(ItemStack stack) {
+        if (stack.isEmpty()) return;
+
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
+        if (id != null) {
+            String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
+            WhitelistEntry entry = new WhitelistEntry(id.toString(), nbtStr);
+
+            if (entries.remove(entry)) {
+                save();
+            }
+        }
+    }
+
     public void clear() {
-        if (whitelistIds.isEmpty()) return;
-        whitelistIds.clear();
-        itemCache.clear();
+        if (entries.isEmpty()) return;
+        entries.clear();
         save();
     }
 
-    public boolean contains(Item item) {
-        return itemCache.contains(item);
+    /**
+     * 检查白名单是否包含该物品（严格比对 NBT）
+     */
+    public boolean contains(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+
+        // 快速检查
+        for (WhitelistEntry entry : entries) {
+            if (entry.matches(stack)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public Set<Item> getItems() {
-        return itemCache;
+    /**
+     * 获取用于显示的 Item 列表 (仅用于 GUI 渲染)
+     * 注意：这会为每个 Entry 创建一个新的 ItemStack，包含 NBT
+     */
+    public Set<ItemStack> getDisplayItems() {
+        Set<ItemStack> stacks = new LinkedHashSet<>();
+        for (WhitelistEntry entry : entries) {
+            ItemStack stack = entry.createStack();
+            if (!stack.isEmpty()) {
+                stacks.add(stack);
+            }
+        }
+        return stacks;
     }
 
     private void save() {
         try (Writer writer = Files.newBufferedWriter(configPath)) {
-            GSON.toJson(whitelistIds, writer);
+            GSON.toJson(entries, writer);
         } catch (IOException e) {
             LOGGER.error("Failed to save whitelist", e);
         }
@@ -87,33 +124,77 @@ public class FilterWhitelist {
     private void load() {
         if (!Files.exists(configPath)) return;
         try (Reader reader = Files.newBufferedReader(configPath)) {
-            Set<String> loaded = GSON.fromJson(reader, new TypeToken<Set<String>>(){}.getType());
+            Set<WhitelistEntry> loaded = GSON.fromJson(reader, new TypeToken<Set<WhitelistEntry>>(){}.getType());
             if (loaded != null) {
-                whitelistIds.clear();
-                whitelistIds.addAll(loaded);
-                rebuildCache();
+                entries.clear();
+                entries.addAll(loaded);
             }
         } catch (IOException e) {
             LOGGER.error("Failed to load whitelist", e);
         }
     }
 
-    private void rebuildCache() {
-        itemCache.clear();
-        for (String id : whitelistIds) {
-            // [修复] 使用 tryParse 替代 new ResourceLocation(String)
-            // tryParse 会处理异常格式并返回 null，而不是抛出异常
-            ResourceLocation loc = ResourceLocation.tryParse(id);
+    // --- 内部数据类 ---
 
-            if (loc != null) {
-                // 如果 ID 指向的物品在当前整合包中不存在 (比如删除了某个 Mod)，getValue 会返回 null 或 Air
-                if (ForgeRegistries.ITEMS.containsKey(loc)) {
-                    Item item = ForgeRegistries.ITEMS.getValue(loc);
-                    if (item != null && item != Items.AIR) {
-                        itemCache.add(item);
-                    }
+    public static class WhitelistEntry {
+        public String id;
+        public String nbt; // 存储 NBT 的字符串形式
+
+        public WhitelistEntry() {}
+
+        public WhitelistEntry(String id, String nbt) {
+            this.id = id;
+            this.nbt = nbt;
+        }
+
+        public boolean matches(ItemStack stack) {
+            ResourceLocation stackId = ForgeRegistries.ITEMS.getKey(stack.getItem());
+            if (stackId == null || !stackId.toString().equals(this.id)) {
+                return false;
+            }
+
+            // NBT 比对逻辑
+            CompoundTag stackTag = stack.getTag();
+            if (this.nbt == null || this.nbt.isEmpty()) {
+                // 白名单没 NBT -> 物品也不能有 NBT (或者为空)
+                return stackTag == null || stackTag.isEmpty();
+            } else {
+                // 白名单有 NBT -> 物品必须有完全相同的 NBT
+                if (stackTag == null) return false;
+                return stackTag.toString().equals(this.nbt);
+            }
+        }
+
+        public ItemStack createStack() {
+            ResourceLocation loc = ResourceLocation.tryParse(id);
+            if (loc == null || !ForgeRegistries.ITEMS.containsKey(loc)) return ItemStack.EMPTY;
+
+            var item = ForgeRegistries.ITEMS.getValue(loc);
+            if (item == null || item == Items.AIR) return ItemStack.EMPTY;
+
+            ItemStack stack = new ItemStack(item);
+            if (nbt != null && !nbt.isEmpty()) {
+                try {
+                    CompoundTag tag = TagParser.parseTag(nbt);
+                    stack.setTag(tag);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to parse NBT for whitelist item: " + id, e);
                 }
             }
+            return stack;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            WhitelistEntry that = (WhitelistEntry) o;
+            return Objects.equals(id, that.id) && Objects.equals(nbt, that.nbt);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id, nbt);
         }
     }
 }
