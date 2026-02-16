@@ -1,4 +1,4 @@
-package com.mohuia.better_looting.client;
+package com.mohuia.better_looting.client.core;
 
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;

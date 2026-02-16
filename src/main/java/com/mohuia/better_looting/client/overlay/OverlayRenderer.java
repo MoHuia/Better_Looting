@@ -3,17 +3,14 @@ package com.mohuia.better_looting.client.overlay;
 import com.mohuia.better_looting.client.Constants;
 import com.mohuia.better_looting.client.Core;
 import com.mohuia.better_looting.client.Utils;
-import com.mohuia.better_looting.client.VisualItemEntry;
+import com.mohuia.better_looting.client.core.VisualItemEntry;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
-import org.joml.Matrix4f;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,14 +18,17 @@ import java.util.Optional;
 /**
  * 渲染器实现类.
  * <p>
- * 处理底层的绘制操作，包括物品行、滚动条、Tooltip 以及复杂的自定义几何图形（如圆角进度条）。
+ * 处理底层的绘制操作，包括物品行、滚动条、Tooltip 以及交互提示。
+ * 移除了复杂的几何图形绘制，回归原版风格的极简渲染。
  */
 public class OverlayRenderer {
     private final Minecraft mc;
 
     public OverlayRenderer(Minecraft mc) { this.mc = mc; }
 
-    // --- 1. 顶部过滤器标签 ---
+    // =========================================
+    //            1. 顶部过滤器标签
+    // =========================================
 
     public void renderFilterTabs(GuiGraphics gui, int x, int y) {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
@@ -45,7 +45,9 @@ public class OverlayRenderer {
         gui.renderOutline(x, y - 8, 6, 6, border);
     }
 
-    // --- 2. 物品行渲染 ---
+    // =========================================
+    //            2. 物品行渲染
+    // =========================================
 
     public void renderItemRow(GuiGraphics gui, int x, int y, int width, VisualItemEntry entry, boolean selected, float bgAlpha, float textAlpha, boolean isNew) {
         ItemStack stack = entry.getItem(); // 获取用于显示的物品栈
@@ -63,8 +65,7 @@ public class OverlayRenderer {
 
         // 绘制物品图标
         gui.renderItem(stack, x + 3, y + 3);
-        // 如果数量为 1，不显示文字
-        // 如果数量 > 1，显示自定义文字（即支持 > 64 的数字）
+        // 如果数量为 1，不显示文字；如果数量 > 1，显示自定义文字（即支持 > 64 的数字）
         String countText = (count > 1) ? compactCount(count) : null;
 
         // 使用该重载方法，传入自定义 String 替代原版数量绘制
@@ -92,13 +93,15 @@ public class OverlayRenderer {
         }
     }
 
-    /** 简单的数字格式化 */
+    /** 简单的数字格式化 (如 10000 -> 10k) */
     private String compactCount(int count) {
-        if (count >= 10000) return (count / 1000) + "k"; // 10k+
+        if (count >= 10000) return (count / 1000) + "k";
         return String.valueOf(count);
     }
 
-    // --- 3. 滚动条渲染 ---
+    // =========================================
+    //            3. 滚动条渲染
+    // =========================================
 
     public void renderScrollBar(GuiGraphics gui, int total, float maxVis, int x, int y, int h, float alpha, float scroll) {
         // 背景轨道
@@ -113,8 +116,18 @@ public class OverlayRenderer {
                 Utils.applyAlpha(Constants.COLOR_SCROLL_THUMB, alpha));
     }
 
-    // --- 4. 交互提示 (F键) ---
+    // =========================================
+    //            4. 交互提示 (F键)
+    // =========================================
 
+    /**
+     * 绘制交互按键提示.
+     * <p>
+     * 风格调整：
+     * 背景为深色圆角矩形。
+     * 进度条为一个灰色的半透明正方形遮罩，悬浮在背景中心（四周留空），
+     * 并随进度从下往上填充，类似物品冷却效果。
+     */
     public void renderKeyPrompt(GuiGraphics gui, int x, int startY, int itemHeight, int selIndex, float scroll, float visibleRows, float bgAlpha) {
         float relSel = selIndex - scroll;
         // 如果选中项在可视范围外，不绘制
@@ -131,156 +144,52 @@ public class OverlayRenderer {
 
         int boxX = x - 21;
         int boxY = y;
+        int boxSize = 14; // 方块整体大小
 
-        // 4.1 背景方块
-        renderRoundedRect(gui, boxX, boxY, 14, 14, Utils.applyAlpha(Constants.COLOR_KEY_BG, finalAlpha));
+        // 4.1 绘制深色背景底框
+        renderRoundedRect(gui, boxX, boxY, boxSize, boxSize, Utils.applyAlpha(Constants.COLOR_KEY_BG, finalAlpha));
 
-        // 4.2 长按进度条 (圆角矩形描边)
-        float pickupProgress = Core.INSTANCE.getPickupProgress();
-        if (pickupProgress > 0.0f && pickupProgress < 1.0f) {
-            int ringColor = Utils.colorWithAlpha(Constants.COLOR_TEXT_WHITE & 0x00FFFFFF, (int)(finalAlpha * 255));
-            float inset = 2.0f;
-            drawSmoothRoundedRectProgress(gui, boxX + inset, boxY + inset, 14.0f - inset * 2, 14.0f - inset * 2,
-                    2.0f, 0.8f, pickupProgress, ringColor);
+        // 4.2 绘制进度填充 (从下往上，灰色透明，保留内边距)
+        float progress = Core.INSTANCE.getPickupProgress();
+
+        if (progress > 0.0f) {
+            // 内边距 (Padding): 让进度条不贴边
+            int padding = 2;
+            int innerSize = boxSize - padding * 2; // 14 - 4 = 10px
+
+            // 计算填充高度
+            int fillHeight = (int) (innerSize * progress);
+
+            // 计算坐标 (基于内缩后的区域)
+            // 底部基准线 = 盒子底部 - 内边距
+            int innerBottom = boxY + boxSize - padding;
+            // 顶部变化线 = 底部基准线 - 当前高度
+            int fillTop = innerBottom - fillHeight;
+
+            int innerLeft = boxX + padding;
+            int innerRight = innerLeft + innerSize;
+
+            // 填充颜色：灰色透明 (0x80808080)
+            // 调整 Alpha 通道使其受全局渐变影响
+            // 0x80808080 >>> 24 = 0x80 (128)
+            int overlayColor = Utils.colorWithAlpha(0x80808080, (int)(finalAlpha * 255));
+
+            // 绘制填充矩形
+            gui.fill(innerLeft, fillTop, innerRight, innerBottom, overlayColor);
         }
 
-        // 4.3 文字 "F"
+        // 4.3 绘制文字 "F"
         String text = "F";
-        int tx = boxX + (14 - mc.font.width(text)) / 2;
+        int tx = boxX + (boxSize - mc.font.width(text)) / 2;
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+
+        // 文字始终绘制在最上层，确保清晰可见
         gui.drawString(mc.font, text, tx, boxY + 3, Utils.colorWithAlpha(Constants.COLOR_TEXT_WHITE, (int)(finalAlpha * 255)), false);
     }
 
-    // --- 5. 几何绘图核心 (Triangle Strip) ---
-
-    /**
-     * 绘制平滑圆角矩形进度条.
-     * <p>
-     * 原理：使用 TRIANGLE_STRIP 构建带宽度的线条（Ribbon）。
-     * 需要计算每个顶点的法向量来挤出厚度。
-     * * @param thickness 线条厚度
-     * @param progress 0.0 - 1.0
-     */
-    private void drawSmoothRoundedRectProgress(GuiGraphics gui, float x, float y, float w, float h, float r, float thickness, float progress, int color) {
-        if (progress <= 0.0f) return;
-
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-
-        Tesselator tesselator = Tesselator.getInstance();
-        BufferBuilder buffer = tesselator.getBuilder();
-        Matrix4f matrix = gui.pose().last().pose();
-
-        buffer.begin(VertexFormat.Mode.TRIANGLE_STRIP, DefaultVertexFormat.POSITION_COLOR);
-
-        // 颜色分解
-        int a = (color >> 24) & 255;
-        int red = (color >> 16) & 255;
-        int g = (color >> 8) & 255;
-        int b = (color & 255);
-
-        float halfThick = thickness / 2.0f;
-        r = Math.min(r, Math.min(w / 2f, h / 2f)); // 限制半径
-
-        // 计算各段长度
-        float straightW = w - 2 * r;
-        float straightH = h - 2 * r;
-        float arcLen = (float) (Math.PI * r / 2.0); // 90度圆弧长
-        float totalLen = 2 * straightW + 2 * straightH + 4 * arcLen;
-        float targetLen = totalLen * progress;
-
-        float currentLen = 0;
-        float centerX = x + w / 2.0f;
-
-        // 按顺时针顺序绘制：上 -> 右上弯 -> 右 -> 右下弯 -> 下 -> 左下弯 -> 左 -> 左上弯 -> 闭合
-
-        // 1. Top
-        currentLen = drawStraightSegment(buffer, matrix, centerX, y, centerX + straightW / 2.0f, y, halfThick, currentLen, targetLen, red, g, b, a);
-        // 2. Top-Right Corner
-        if (currentLen < targetLen) currentLen = drawArcSegment(buffer, matrix, x + w - r, y + r, r, -90, 0, halfThick, currentLen, targetLen, red, g, b, a);
-        // 3. Right
-        if (currentLen < targetLen) currentLen = drawStraightSegment(buffer, matrix, x + w, y + r, x + w, y + r + straightH, halfThick, currentLen, targetLen, red, g, b, a);
-        // 4. Bottom-Right Corner
-        if (currentLen < targetLen) currentLen = drawArcSegment(buffer, matrix, x + w - r, y + h - r, r, 0, 90, halfThick, currentLen, targetLen, red, g, b, a);
-        // 5. Bottom
-        if (currentLen < targetLen) currentLen = drawStraightSegment(buffer, matrix, x + w - r, y + h, x + r, y + h, halfThick, currentLen, targetLen, red, g, b, a);
-        // 6. Bottom-Left Corner
-        if (currentLen < targetLen) currentLen = drawArcSegment(buffer, matrix, x + r, y + h - r, r, 90, 180, halfThick, currentLen, targetLen, red, g, b, a);
-        // 7. Left
-        if (currentLen < targetLen) currentLen = drawStraightSegment(buffer, matrix, x, y + h - r, x, y + r, halfThick, currentLen, targetLen, red, g, b, a);
-        // 8. Top-Left Corner
-        if (currentLen < targetLen) currentLen = drawArcSegment(buffer, matrix, x + r, y + r, r, 180, 270, halfThick, currentLen, targetLen, red, g, b, a);
-        // 9. Top Closure (回到底部中心)
-        if (currentLen < targetLen) drawStraightSegment(buffer, matrix, x + r, y, centerX, y, halfThick, currentLen, targetLen, red, g, b, a);
-
-        BufferUploader.drawWithShader(buffer.end());
-        RenderSystem.disableBlend();
-    }
-
-    /** 绘制直线段，自动处理厚度挤出 */
-    private float drawStraightSegment(BufferBuilder buffer, Matrix4f matrix, float x1, float y1, float x2, float y2, float halfThick, float currentLen, float targetLen, int r, int g, int b, int a) {
-        float dx = x2 - x1;
-        float dy = y2 - y1;
-        float len = (float) Math.sqrt(dx * dx + dy * dy);
-        if (len <= 0.0001f) return currentLen;
-
-        // 如果超出目标长度，截断
-        float drawLen = len;
-        if (currentLen + len > targetLen) drawLen = targetLen - currentLen;
-
-        float ratio = drawLen / len;
-        float endX = x1 + dx * ratio;
-        float endY = y1 + dy * ratio;
-
-        // 计算法向量 (垂直于路径方向)，用于生成宽度
-        // 假设顺时针绘制，内侧向量为 (-dy, dx) 的归一化
-        float nxIn = -dy / len;
-        float nyIn = dx / len;
-
-        // 如果是整个路径的起点，需要先推入两个顶点来启动 Strip
-        if (currentLen == 0) {
-            // Vertex Order: [Outer, Inner]
-            buffer.vertex(matrix, x1 - nxIn * halfThick, y1 - nyIn * halfThick, 0f).color(r, g, b, a).endVertex();
-            buffer.vertex(matrix, x1 + nxIn * halfThick, y1 + nyIn * halfThick, 0f).color(r, g, b, a).endVertex();
-        }
-
-        // 添加终点的两个顶点
-        buffer.vertex(matrix, endX - nxIn * halfThick, endY - nyIn * halfThick, 0f).color(r, g, b, a).endVertex();
-        buffer.vertex(matrix, endX + nxIn * halfThick, endY + nyIn * halfThick, 0f).color(r, g, b, a).endVertex();
-
-        return currentLen + drawLen;
-    }
-
-    /** 绘制圆弧段 */
-    private float drawArcSegment(BufferBuilder buffer, Matrix4f matrix, float cx, float cy, float r, float startAngleDeg, float endAngleDeg, float halfThick, float currentLen, float targetLen, int red, int green, int blue, int a) {
-        float startRad = (float) Math.toRadians(startAngleDeg);
-        float endRad = (float) Math.toRadians(endAngleDeg);
-        float totalRad = Math.abs(endRad - startRad);
-        float arcLen = totalRad * r;
-
-        float drawArcLen = arcLen;
-        if (currentLen + arcLen > targetLen) drawArcLen = targetLen - currentLen;
-
-        // 根据弧长动态决定分段数，保证平滑
-        int segments = Math.max(4, (int) (drawArcLen / 2.0f));
-        float actualEndRad = startRad + (endRad - startRad) * (drawArcLen / arcLen);
-
-        for (int i = 1; i <= segments; i++) {
-            float ratio = (float) i / segments;
-            float rad = startRad + (actualEndRad - startRad) * ratio;
-            float cos = (float) Math.cos(rad);
-            float sin = (float) Math.sin(rad);
-
-            // Outer Vertex
-            buffer.vertex(matrix, cx + cos * (r + halfThick), cy + sin * (r + halfThick), 0f).color(red, green, blue, a).endVertex();
-            // Inner Vertex
-            buffer.vertex(matrix, cx + cos * (r - halfThick), cy + sin * (r - halfThick), 0f).color(red, green, blue, a).endVertex();
-        }
-        return currentLen + drawArcLen;
-    }
-
-    // --- Tooltip 渲染 ---
+    // =========================================
+    //            5. Tooltip 渲染
+    // =========================================
 
     public void renderTooltip(GuiGraphics gui, ItemStack stack, int screenW, int screenH, OverlayLayout layout, float currentScroll, int selIndex) {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
@@ -289,7 +198,6 @@ public class OverlayRenderer {
         if (lines.isEmpty()) return;
 
         // 简单的智能定位逻辑：优先显示在列表右侧，不够位置则显示在左侧
-        // ... (省略复杂的计算逻辑注释，直接保留功能) ...
         int maxTextWidth = 0;
         for (Component line : lines) {
             int w = mc.font.width(line);
@@ -323,11 +231,16 @@ public class OverlayRenderer {
         }
 
         // 渲染原版 Tooltip
-        gui.renderTooltip(mc.font, lines, Optional.empty(), desiredLeft - 12, desiredTop + 12); // -12/+12 是为了抵消 renderTooltip 内部的鼠标偏移假设
+        gui.renderTooltip(mc.font, lines, Optional.empty(), desiredLeft - 12, desiredTop + 12);
     }
 
+    // =========================================
+    //            6. 辅助方法
+    // =========================================
+
+    /** 绘制一个模拟圆角的矩形 (通过切掉四个角的 1px 实现) */
     private void renderRoundedRect(GuiGraphics gui, int x, int y, int w, int h, int color) {
-        gui.fill(x + 1, y, x + w - 1, y + h, color);
-        gui.fill(x, y + 1, x + w, y + h - 1, color);
+        gui.fill(x + 1, y, x + w - 1, y + h, color); // 中间主体
+        gui.fill(x, y + 1, x + w, y + h - 1, color); // 左右两侧
     }
 }

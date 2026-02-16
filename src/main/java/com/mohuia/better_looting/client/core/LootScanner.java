@@ -1,5 +1,7 @@
-package com.mohuia.better_looting.client;
+package com.mohuia.better_looting.client.core;
 
+import com.mohuia.better_looting.client.Core;
+import com.mohuia.better_looting.client.Utils;
 import com.mohuia.better_looting.client.filter.FilterWhitelist;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.item.ItemEntity;

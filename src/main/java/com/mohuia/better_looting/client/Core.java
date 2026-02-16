@@ -1,11 +1,13 @@
 package com.mohuia.better_looting.client;
 
+import com.mohuia.better_looting.client.core.LootScanner;
+import com.mohuia.better_looting.client.core.PickupHandler;
+import com.mohuia.better_looting.client.core.VisualItemEntry;
 import com.mohuia.better_looting.client.filter.FilterWhitelist;
 import com.mohuia.better_looting.config.Config;
 import com.mohuia.better_looting.config.ConfigScreen;
 import com.mohuia.better_looting.network.NetworkHandler;
 import com.mohuia.better_looting.network.C2S.PacketBatchPickup;
-import com.mohuia.better_looting.network.C2S.PacketPickupItem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;

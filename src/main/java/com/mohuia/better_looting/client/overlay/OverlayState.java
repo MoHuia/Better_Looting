@@ -1,8 +1,8 @@
 package com.mohuia.better_looting.client.overlay;
 
-import com.mohuia.better_looting.client.VisualItemEntry;
+import com.mohuia.better_looting.client.core.VisualItemEntry;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.item.ItemEntity;
+
 import java.util.*;
 import java.util.stream.Collectors;
 

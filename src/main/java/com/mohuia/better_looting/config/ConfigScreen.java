@@ -2,7 +2,7 @@ package com.mohuia.better_looting.config;
 
 import com.mohuia.better_looting.BetterLooting;
 import com.mohuia.better_looting.client.Constants;
-import com.mohuia.better_looting.client.VisualItemEntry; // [新增 Import]
+import com.mohuia.better_looting.client.core.VisualItemEntry; // [新增 Import]
 import com.mohuia.better_looting.client.overlay.OverlayRenderer;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;

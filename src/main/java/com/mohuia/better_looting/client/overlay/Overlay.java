@@ -1,12 +1,12 @@
 package com.mohuia.better_looting.client.overlay;
 
 import com.mohuia.better_looting.client.*;
+import com.mohuia.better_looting.client.core.VisualItemEntry;
 import com.mohuia.better_looting.config.Config;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.common.MinecraftForge;
