@@ -2,7 +2,6 @@ package com.mohuia.better_looting.network;
 
 import com.mohuia.better_looting.BetterLooting;
 import com.mohuia.better_looting.network.C2S.PacketBatchPickup;
-import com.mohuia.better_looting.network.C2S.PacketPickupItem;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
@@ -29,14 +28,6 @@ public class NetworkHandler {
      */
     public static void register() {
         int id = 0;
-
-        // 注册单个物品拾取包 (C2S)
-        INSTANCE.registerMessage(id++,
-                PacketPickupItem.class,
-                PacketPickupItem::toBytes,
-                PacketPickupItem::new,
-                PacketPickupItem::handle
-        );
 
         // 注册批量/自动拾取包 (C2S)
         INSTANCE.registerMessage(id++,

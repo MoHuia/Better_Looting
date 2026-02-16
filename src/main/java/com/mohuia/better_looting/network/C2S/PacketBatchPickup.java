@@ -11,34 +11,58 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.network.NetworkEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * 批量拾取数据包 (Client -> Server)。
+ * 统一拾取数据包 (Client -> Server)。
  * <p>
- * 用于处理玩家一次性拾取多个物品的请求（手动按键或自动吸附）。
+ * 优化版：使用反射缓存替代 NBT 序列化来检查拾取延迟，极大提升大量物品时的性能。
  */
 public class PacketBatchPickup {
-    private final List<Integer> entityIds;
-    private final boolean isAuto; // 标记是否为自动触发（影响反馈音效和提示）
+    private static final Logger LOGGER = LoggerFactory.getLogger(PacketBatchPickup.class);
 
-    // --- 构造函数 ---
+    // --- 反射缓存 ---
+    private static Field PICKUP_DELAY_FIELD;
+    private static boolean reflectionFailed = false;
 
-    public PacketBatchPickup(List<Integer> entityIds) {
-        this(entityIds, false);
+    static {
+        try {
+            // 尝试获取 pickupDelay 字段 (适应 MojMap 映射)
+            // 如果是 SRG 环境，可能需要改为 "field_70292_b"
+            // 为了稳健，可以尝试遍历查找 int 类型的字段，但这里先假定是官方映射
+            PICKUP_DELAY_FIELD = ItemEntity.class.getDeclaredField("pickupDelay");
+            PICKUP_DELAY_FIELD.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            try {
+                // 备用：尝试 SRG 常用名 (如果开发环境与生产环境映射不同)
+                PICKUP_DELAY_FIELD = ItemEntity.class.getDeclaredField("field_70292_b");
+                PICKUP_DELAY_FIELD.setAccessible(true);
+            } catch (NoSuchFieldException ex) {
+                LOGGER.error("BetterLooting: Failed to find pickupDelay field via reflection.", ex);
+                reflectionFailed = true;
+            }
+        }
     }
 
-    public PacketBatchPickup(List<Integer> entityIds, boolean isAuto) {
+    private final List<Integer> entityIds;
+    private final boolean isAuto;
+    private final boolean limitToMaxStack;
+
+    public PacketBatchPickup(List<Integer> entityIds, boolean isAuto, boolean limitToMaxStack) {
         this.entityIds = entityIds;
         this.isAuto = isAuto;
+        this.limitToMaxStack = limitToMaxStack;
     }
 
-    /** 从 ByteBuf 解码 (服务端接收时调用) */
     public PacketBatchPickup(FriendlyByteBuf buf) {
         this.isAuto = buf.readBoolean();
+        this.limitToMaxStack = buf.readBoolean();
         int count = buf.readVarInt();
         this.entityIds = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
@@ -46,93 +70,102 @@ public class PacketBatchPickup {
         }
     }
 
-    /** 编码到 ByteBuf (客户端发送时调用) */
     public void toBytes(FriendlyByteBuf buf) {
         buf.writeBoolean(isAuto);
+        buf.writeBoolean(limitToMaxStack);
         buf.writeVarInt(entityIds.size());
         for (int id : entityIds) {
             buf.writeInt(id);
         }
     }
 
-    /**
-     * 处理包逻辑。
-     * <p>
-     * <b>重要：</b> Netty 网络线程不能直接操作游戏世界（会导致并发崩溃）。
-     * 必须使用 {@code ctx.enqueueWork} 将任务调度到服务器主线程执行。
-     */
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
             if (player == null) return;
 
+            int remainingQuota = limitToMaxStack ? 64 : Integer.MAX_VALUE;
             boolean anySuccess = false;
             boolean anyFull = false;
 
             for (int entityId : entityIds) {
+                if (remainingQuota <= 0) break;
+
                 Entity target = player.level().getEntity(entityId);
 
-                // 安全检查：确认实体存在、是掉落物、且距离足够近（防作弊/延迟容错）
+                // 距离与类型检查
                 if (target instanceof ItemEntity itemEntity && itemEntity.isAlive() && player.distanceToSqr(target) < 64.0) {
 
-                    // 检查 PickupDelay (例如玩家刚扔出去的物品不能马上捡回来)
-                    CompoundTag tag = new CompoundTag();
-                    itemEntity.saveWithoutId(tag);
-                    if (tag.getShort("PickupDelay") > 0) {
+                    // --- 优化：通过反射检查 PickupDelay ---
+                    if (!canPickup(itemEntity)) {
                         continue;
                     }
 
-                    ItemStack stack = itemEntity.getItem().copy();
-                    int originalCount = stack.getCount();
+                    ItemStack groundStack = itemEntity.getItem();
+                    int amountToTake = Math.min(groundStack.getCount(), remainingQuota);
 
-                    // 尝试将物品加入玩家背包
-                    if (player.getInventory().add(stack)) {
+                    ItemStack stackToPickup = groundStack.copy();
+                    stackToPickup.setCount(amountToTake);
+
+                    if (player.getInventory().add(stackToPickup)) {
                         anySuccess = true;
+                        int actuallyPickedUp = amountToTake - stackToPickup.getCount();
+                        remainingQuota -= actuallyPickedUp;
 
-                        // 扣除掉落物实体中的数量
-                        // 如果 stack.getCount() > 0，说明背包满了只捡了一部分
-                        player.take(itemEntity, originalCount - stack.getCount());
+                        player.take(itemEntity, actuallyPickedUp);
+                        groundStack.shrink(actuallyPickedUp);
 
-                        if (stack.isEmpty()) {
-                            itemEntity.discard(); // 全部捡完，删除实体
+                        if (groundStack.isEmpty()) {
+                            itemEntity.discard();
                         } else {
-                            itemEntity.getItem().setCount(stack.getCount()); // 更新剩余数量
-                            anyFull = true; // 标记背包满了
+                            itemEntity.setItem(groundStack);
+                            if (!stackToPickup.isEmpty()) anyFull = true;
                         }
                     } else {
-                        anyFull = true; // 完全捡不起来
+                        anyFull = true;
                     }
                 }
             }
 
-            // --- 反馈处理 ---
-
             if (anySuccess) {
-                // 播放随机音调的 "啵" 声
                 player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                         SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.2F,
                         ((player.getRandom().nextFloat() - player.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
             }
 
-            if (anyFull) {
-                // 如果是自动拾取模式，背包满时不报错（防止刷屏干扰）
-                // 只有手动按键时才提示 "Inventory Full"
-                if (!isAuto) {
-                    if (!anySuccess) {
-                        player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.5f, 1.2f);
-                    }
-                    sendInventoryFullMessage(player);
+            if (anyFull && !isAuto) {
+                if (!anySuccess) {
+                    player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.5f, 1.2f);
                 }
+                player.displayClientMessage(
+                        Component.translatable("message.better_looting.inventory_full").withStyle(ChatFormatting.RED),
+                        true
+                );
             }
         });
 
         ctx.get().setPacketHandled(true);
     }
 
-    private void sendInventoryFullMessage(ServerPlayer player) {
-        player.displayClientMessage(
-                Component.translatable("message.better_looting.inventory_full").withStyle(ChatFormatting.RED),
-                true // true = 显示在操作栏 (Action Bar)，false = 显示在聊天框
-        );
+    /**
+     * 辅助方法：检查物品是否可以被拾取 (冷却时间归零)
+     */
+    private boolean canPickup(ItemEntity itemEntity) {
+        // 如果反射初始化失败，为了安全起见，禁止快速拾取，或者退化为 NBT 检查(这里选择简单的放行或禁止，根据你的需求)
+        // 建议：如果反射坏了，就默认允许拾取，或者在此处退化为 NBT 检查。
+        if (reflectionFailed || PICKUP_DELAY_FIELD == null) {
+            // 退化逻辑 (Fallback): 仅当反射失败时才执行昂贵的 NBT 检查
+            CompoundTag tag = new CompoundTag();
+            itemEntity.saveWithoutId(tag);
+            return tag.getShort("PickupDelay") <= 0;
+        }
+
+        try {
+            // 极速检查：直接读取 int 字段
+            int delay = PICKUP_DELAY_FIELD.getInt(itemEntity);
+            return delay <= 0;
+        } catch (IllegalAccessException e) {
+            return false;
+        }
     }
 }

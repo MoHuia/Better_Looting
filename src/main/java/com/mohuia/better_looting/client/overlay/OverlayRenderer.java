@@ -9,10 +9,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.EnchantedBookItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -80,7 +84,31 @@ public class OverlayRenderer {
         pose.pushPose();
         pose.translate(x + 26, y + 8, 0);
         pose.scale(0.75f, 0.75f, 1.0f);
-        gui.drawString(mc.font, stack.getHoverName(), 0, 0, textColor, false);
+
+        // --- 物品名称显示逻辑 (含附魔书特殊处理) ---
+        Component displayName = stack.getHoverName(); // 默认使用物品原名
+
+        // 检查是否为附魔书
+        if (stack.getItem() instanceof EnchantedBookItem) {
+            // 获取附魔列表
+            Map<Enchantment, Integer> enchants = EnchantmentHelper.getEnchantments(stack);
+            if (!enchants.isEmpty()) {
+                // 获取第一个附魔
+                Map.Entry<Enchantment, Integer> enchantEntry = enchants.entrySet().iterator().next();
+                Enchantment ench = enchantEntry.getKey();
+                int level = enchantEntry.getValue();
+
+                // 获取原版全名 (这会自动处理颜色：普通附魔为灰色，诅咒为红色)
+                displayName = ench.getFullname(level);
+            }
+        }
+
+        // 渲染文字
+        // 注意：虽然 textColor 里包含颜色(白/灰)，但因为 displayName (附魔名) 自带了颜色样式(Style)，
+        // 原版字体渲染器会优先使用 displayName 的 RGB 颜色，
+        // 但会保留 textColor 中的 Alpha (透明度)，从而完美实现"原版字色+模组淡入淡出"。
+        gui.drawString(mc.font, displayName, 0, 0, textColor, false);
+
         pose.popPose();
 
         // 绘制 "NEW" 标签 (针对背包中没有的物品)
