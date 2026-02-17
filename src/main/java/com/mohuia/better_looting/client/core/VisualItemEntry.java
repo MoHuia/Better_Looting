@@ -6,47 +6,50 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 视觉上的物品条目.
- * <p>
- * 将地面上多个相同的 ItemEntity 合并为一个条目用于显示。
- * </p>
+ * 视觉物品条目.
+ * 代表 UI 列表中的一行。该类负责将多个同类 {@link ItemEntity} 聚合显示。
+ * 包含代表性物品栈 (Representative Stack) 和源实体列表。
  */
 public class VisualItemEntry {
     private final List<ItemEntity> sourceEntities = new ArrayList<>();
     private final ItemStack representativeStack;
     private int totalCount = 0;
 
-    /** 标准构造函数：用于游戏内扫描到的实体 */
+    /**
+     * 游戏内实体构造函数.
+     * @param firstEntity 发现的第一个实体
+     */
     public VisualItemEntry(ItemEntity firstEntity) {
         this.sourceEntities.add(firstEntity);
         this.representativeStack = firstEntity.getItem().copy();
         this.totalCount = this.representativeStack.getCount();
     }
 
-    /** 仅预览构造函数：用于 ConfigScreen */
+    /**
+     * 仅用于 ConfigScreen 预览的构造函数.
+     * @param stack 预览用的物品栈
+     */
     public VisualItemEntry(ItemStack stack) {
         this.representativeStack = stack.copy();
         this.totalCount = stack.getCount();
     }
 
-    /** * 尝试合并另一个实体
-     * @return 如果合并成功返回 true，否则返回 false
+    /**
+     * 尝试合并另一个实体到当前条目.
+     *
+     * @param entity 待合并的实体
+     * @return true 如果合并成功 (类型相同且允许堆叠); false 否则
      */
     public boolean tryMerge(ItemEntity entity) {
         ItemStack otherStack = entity.getItem();
 
-        // --- 修改开始 ---
-
-        // 1. 检查物品本身是否允许堆叠
-        // 如果物品不可堆叠 (MaxStackSize == 1)，如剑、工具、盔甲，
-        // 即使它们完全相同（包括耐久度），我们也强制不合并，让它们在列表中分开显示。
+        // 1. 强制检查堆叠规则
+        // 工具、武器、盔甲等 (maxStackSize=1) 即使完全相同也不合并，确保可以在列表中分开选择。
         if (!this.representativeStack.isStackable()) {
             return false;
         }
 
-        // --- 修改结束 ---
-
-        // 2. 原有逻辑：判断物品类型和 NBT 是否相同
+        // 2. 检查 Item 和 NBT 是否一致
         if (ItemStack.isSameItemSameTags(this.representativeStack, otherStack)) {
             this.sourceEntities.add(entity);
             this.totalCount += otherStack.getCount();
@@ -60,6 +63,10 @@ public class VisualItemEntry {
     public int getCount() { return totalCount; }
     public List<ItemEntity> getSourceEntities() { return sourceEntities; }
 
+    /**
+     * 获取主 ID (用于排序稳定性).
+     * @return 第一个源实体的 ID，如果列表为空返回 -1
+     */
     public int getPrimaryId() {
         return sourceEntities.isEmpty() ? -1 : sourceEntities.get(0).getId();
     }

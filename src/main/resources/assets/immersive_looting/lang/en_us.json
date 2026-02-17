@@ -60,5 +60,8 @@
 
   "gui.better_looting.conditions_title": "Logic Settings",
   "gui.better_looting.header_condition": "Overlay Display Condition",
-  "gui.better_looting.scroll_mode": "Scroll Wheel Usage Condition"
+  "gui.better_looting.scroll_mode": "Scroll Wheel Usage Condition",
+
+  "key.better_looting.scroll_modifier": "Scroll Modifier",
+  "key.better_looting.scroll_modifier.desc": "Hold this key and scroll mouse wheel to adjust HUD list selection or page"
 }

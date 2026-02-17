@@ -101,9 +101,7 @@ public class KeyInit {
 
     /**
      * 滚轮修饰键 (默认未绑定)
-     * <p>
      * 当按住此键并滚动鼠标滚轮时，可调整 HUD 列表的选择或翻页。
-     * </p>
      */
     public static final KeyMapping SCROLL_MODIFIER = new KeyMapping(
             "key.better_looting.scroll_modifier",

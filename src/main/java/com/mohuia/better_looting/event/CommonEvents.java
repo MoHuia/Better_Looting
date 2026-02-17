@@ -14,17 +14,6 @@ import net.minecraftforge.fml.common.Mod;
  */
 @Mod.EventBusSubscriber(modid = BetterLooting.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class CommonEvents {
-
-    /**
-     * 拦截原版物品拾取事件。
-     * <p>
-     * <b>原理：</b>
-     * 当实体（玩家、生物）尝试拾取地面上的 {@link net.minecraft.world.entity.item.ItemEntity} 时触发。
-     * 我们需要取消这个事件，防止玩家只要走近物品就自动捡起。
-     * 这样才能让我们的 "按键拾取" 逻辑独占控制权。
-     *
-     * @param event 实体拾取物品事件
-     */
     @SubscribeEvent
     public static void onVanillaPickup(EntityItemPickupEvent event) {
         // 只拦截 "玩家" 的自动拾取，不影响村民、漏斗矿车、海豚等生物的交互

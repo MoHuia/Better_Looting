@@ -24,34 +24,33 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 客户端核心控制器 (单例模式)
- * <p>
+ * 客户端核心控制器 (单例模式).
  * 负责调度整个客户端的核心业务逻辑，基于 MVC 架构设计：
- * <ul>
- * <li><b>状态维护 (Model)</b>: 管理周围掉落物列表、选中索引和过滤模式。</li>
- * <li><b>事件响应 (Controller)</b>: 监听游戏 Tick 和玩家输入，并委托给 {@link LootScanner} 和 {@link PickupHandler} 处理。</li>
- * </ul>
- * </p>
  *
+ * Model (状态): 维护 {@link #nearbyItems} (周围掉落物) 和 {@link #selectedIndex} (选中状态)。
+ * Controller (事件):监听 Tick 和 Input 事件，委托给 {@link LootScanner} 和 {@link PickupHandler} 处理。
  * @author Mohuia
  */
 public class Core {
+
     /** 全局唯一实例 */
     public static final Core INSTANCE = new Core();
 
-    /** 物品过滤模式枚举 */
+    /** 物品过滤模式 */
     public enum FilterMode {
-        ALL,        // 显示所有物品
-        RARE_ONLY   // 仅显示稀有/特定物品
+        /** 显示所有物品 */
+        ALL,
+        /** 仅显示稀有度较高或白名单内的物品 */
+        RARE_ONLY
     }
 
     // =========================================
-    //               助手模块与核心数据
+    //               核心组件
     // =========================================
 
     private final PickupHandler pickupHandler = new PickupHandler();
 
-    /** 当前扫描到的周围掉落物实体列表 */
+    /** 当前扫描到的周围掉落物实体列表 (已合并渲染条目) */
     private List<VisualItemEntry> nearbyItems = new ArrayList<>();
 
     // =========================================
@@ -59,23 +58,23 @@ public class Core {
     // =========================================
 
     private int selectedIndex = 0;
+    /** 目标滚动偏移量，用于实现平滑滚动动画 */
     private int targetScrollOffset = 0;
 
     private FilterMode filterMode = FilterMode.ALL;
     private boolean isAutoMode = false;
 
+    /** 记录滚动按键按下的时长，用于处理长按连续滚动 */
     private int scrollKeyHoldTime = 0;
 
-    /**
-     * 私有构造函数，确保单例。
-     */
     private Core() {
+        // 在构造时注册 Forge 事件总线，确保 tick 和 input 事件被监听
         MinecraftForge.EVENT_BUS.register(this);
         FilterWhitelist.INSTANCE.init();
     }
 
     // =========================================
-    //               Public API (供 HUD 渲染)
+    //               Public API (供 HUD 渲染使用)
     // =========================================
 
     public List<VisualItemEntry> getNearbyItems() { return nearbyItems; }
@@ -85,13 +84,19 @@ public class Core {
     public FilterMode getFilterMode() { return filterMode; }
     public boolean isAutoMode() { return isAutoMode; }
 
-    /** * 实时判断玩家背包中是否含有该物品（替代之前的缓存机制，极大简化逻辑且性能优异）
+    /**
+     * 检查玩家背包中是否含有指定物品.
+     *
+     * 直接遍历背包而非使用缓存，避免了同步问题。
+     * 由于客户端背包槽位较少，此操作性能开销极低。
+     *
+     * @param item 目标物品
+     * @return 如果背包中存在该物品则返回 true
      */
     public boolean isItemInInventory(Item item) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return false;
 
-        // 直接遍历玩家背包的所有格子
         for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
             if (!stack.isEmpty() && stack.getItem() == item) {
@@ -101,27 +106,34 @@ public class Core {
         return false;
     }
 
-    /** 获取当前拾取进度 (用于 UI 动画) */
+    /**
+     * 获取当前拾取动作的进度 (0.0f - 1.0f).
+     * 用于 HUD 渲染长按进度圈。
+     */
     public float getPickupProgress() {
         return hasItems() ? pickupHandler.getProgress() : 0.0f;
     }
 
-    /** 是否应该拦截原版交互逻辑（当模组正在处理拾取或列表不为空时） */
+    /**
+     * 判断是否应该拦截原版交互逻辑 (如左键攻击/右键使用).
+     * 当模组正在处理列表交互时返回 true。
+     */
     public static boolean shouldIntercept() {
         return INSTANCE.hasItems() || INSTANCE.pickupHandler.isInteracting();
     }
 
     // =========================================
-    //               事件循环核心逻辑
+    //               事件循环逻辑
     // =========================================
 
     /**
-     * 客户端主循环处理
-     * @param event 客户端 Tick 事件
+     * 客户端主循环逻辑.
+     * 负责扫描物品、处理自动拾取以及更新输入状态。
+     *
+     * @param event Tick 事件，仅在 {@link TickEvent.Phase#END} 执行以确保逻辑完整性。
      */
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
-        // 必须检查 Phase.END，否则每个游戏刻逻辑会执行两次 (START 和 END)
         if (event.phase != TickEvent.Phase.END) return;
 
         Minecraft mc = Minecraft.getInstance();
@@ -130,16 +142,15 @@ public class Core {
             return;
         }
 
-        // 打开配置界面时暂停处理逻辑
+        // 避免在配置界面操作时触发游戏内逻辑
         if (mc.screen instanceof ConfigScreen) return;
 
-        // 1. 扫描周围物品
+        // 1. 执行扫描
         this.nearbyItems = LootScanner.scan(mc, this.filterMode);
 
-        // 2. 自动拾取逻辑
+        // 2. 处理自动拾取
         if (isAutoMode && !nearbyItems.isEmpty()) {
             if (pickupHandler.canAutoPickup()) {
-                // 自动拾取所有合并后的物品
                 List<ItemEntity> allEntities = new ArrayList<>();
                 for (VisualItemEntry entry : nearbyItems) {
                     allEntities.addAll(entry.getSourceEntities());
@@ -150,18 +161,23 @@ public class Core {
             pickupHandler.resetAutoCooldown();
         }
 
+        // 3. 校验状态与处理输入
         validateSelection();
         handleInputLogic();
     }
 
-    /** 处理功能键和拾取动作输入 */
+    /**
+     * 处理按键输入逻辑 (功能键切换、拾取操作、键盘滚动).
+     */
     private void handleInputLogic() {
+        // 功能键切换
         while (KeyInit.TOGGLE_FILTER.consumeClick()) toggleFilterMode();
         while (KeyInit.OPEN_CONFIG.consumeClick()) Minecraft.getInstance().setScreen(new ConfigScreen());
         while (KeyInit.TOGGLE_AUTO.consumeClick()) toggleAutoMode();
 
+        // 拾取动作判定
         boolean isFKeyDown = KeyInit.PICKUP.isDown();
-        boolean isShiftDown = net.minecraft.client.gui.screens.Screen.hasShiftDown();
+        boolean isShiftDown = Screen.hasShiftDown();
 
         PickupHandler.PickupAction action = pickupHandler.tickInput(isFKeyDown, isShiftDown, !nearbyItems.isEmpty());
 
@@ -170,7 +186,6 @@ public class Core {
                 sendSinglePickup();
                 break;
             case BATCH:
-                // 批量拾取：解包当前列表所有条目的所有实体
                 List<ItemEntity> allEntities = new ArrayList<>();
                 for (VisualItemEntry entry : nearbyItems) {
                     allEntities.addAll(entry.getSourceEntities());
@@ -189,7 +204,7 @@ public class Core {
     // =========================================
 
     /**
-     * 拦截鼠标滚轮事件，用于控制物品列表滚动。
+     * 拦截并处理鼠标滚轮事件.
      */
     @SubscribeEvent
     public void onMouseScroll(InputEvent.MouseScrollingEvent event) {
@@ -198,12 +213,14 @@ public class Core {
         double scrollDelta = event.getScrollDelta();
         if (scrollDelta != 0) {
             performScroll(scrollDelta);
-            // 关键：取消事件，防止在滚动模组列表时玩家快捷栏也跟着滚动
-            event.setCanceled(true);
+            event.setCanceled(true); // 阻止原版快捷栏滚动
         }
     }
 
-    /** 检查是否应忽略当前的滚动事件，交还给原版处理 */
+    /**
+     * 判断当前上下文是否允许模组接管滚轮事件.
+     * 依据配置文件 (ScrollMode) 和玩家状态决定。
+     */
     private boolean shouldIgnoreScroll() {
         if (Minecraft.getInstance().screen instanceof ConfigScreen) return true;
         if (nearbyItems.size() <= 1) return true;
@@ -215,7 +232,7 @@ public class Core {
         if (mode == Config.ScrollMode.STAND_STILL) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return true;
-            // 简单的移动判定：比较当前坐标与上一刻(xo, zo)坐标的位移平方
+            // 简单位移判定：如果移动距离很小则视为静止
             double dx = mc.player.getX() - mc.player.xo;
             double dz = mc.player.getZ() - mc.player.zo;
             return (dx * dx + dz * dz) >= 0.0001;
@@ -225,17 +242,21 @@ public class Core {
 
     private void performScroll(double delta) {
         if (nearbyItems.size() <= 1) return;
+        // delta > 0 为向上滚，索引减小；delta < 0 为向下滚，索引增加
         selectedIndex += (delta > 0) ? -1 : 1;
         validateSelection();
     }
 
-    /** 处理通过按键触发的滚动 (支持长按连发) */
+    /**
+     * 处理键盘辅助滚动 (支持长按加速).
+     */
     private void handleKeyboardScroll() {
         boolean up = KeyInit.SCROLL_UP.isDown();
         boolean down = KeyInit.SCROLL_DOWN.isDown();
+
         if (up || down) {
             scrollKeyHoldTime++;
-            // 首次按下立即触发，之后每 3 tick 触发一次以实现快速滚动
+            // 逻辑：第1 tick触发一次，超过10 tick后每3 tick触发一次
             if (scrollKeyHoldTime == 1 || (scrollKeyHoldTime > 10 && scrollKeyHoldTime % 3 == 0)) {
                 performScroll(up ? 1.0 : -1.0);
             }
@@ -244,7 +265,10 @@ public class Core {
         }
     }
 
-    /** 统一处理索引越界、循环滚动和视口偏移量 (ScrollOffset) 的计算。 */
+    /**
+     * 校验并修正选中索引，同时计算滚动视口偏移 (Scroll Offset).
+     * 包含循环滚动逻辑和视口跟随逻辑。
+     */
     private void validateSelection() {
         if (nearbyItems.isEmpty()) {
             selectedIndex = 0;
@@ -252,69 +276,68 @@ public class Core {
             return;
         }
 
-        // 1. 循环滚动边界处理
+        // 1. 循环滚动
         if (selectedIndex < 0) selectedIndex = nearbyItems.size() - 1;
         if (selectedIndex >= nearbyItems.size()) selectedIndex = 0;
 
         double visibleRows = Math.max(1.0, Config.CLIENT.visibleRows.get());
 
-        // 如果物品总数小于等于可见行数，无需计算视口偏移
+        // 2. 计算视口偏移 (TargetScrollOffset)
         if (nearbyItems.size() <= visibleRows) {
             targetScrollOffset = 0;
             return;
         }
 
-        // 2. 向下滚动视口推移
+        // 视口向下推移
         if (selectedIndex + 1 > targetScrollOffset + visibleRows) {
             targetScrollOffset = (int) Math.ceil(selectedIndex - visibleRows + 1);
         }
-
-        // 3. 向上滚动视口推移
+        // 视口向上推移
         if (selectedIndex < targetScrollOffset) {
             targetScrollOffset = selectedIndex;
         }
 
-        // 4. 边界钳制 (Clamp)
+        // 边界钳制
         int maxOffset = (int) Math.ceil(Math.max(0, nearbyItems.size() - visibleRows));
         targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxOffset));
     }
 
     // =========================================
-    //               网络发包与状态切换
+    //               网络与交互
     // =========================================
 
-    /** * 向服务端发送单次拾取请求.
-     * <p>启用 limitToMaxStack = true，让服务端处理精确的"凑满一组"逻辑。</p>
+    /**
+     * 发送单次拾取请求.
+     * 逻辑：对当前选中的条目，按距离排序后，发送 limitToMaxStack=true 的请求。
      */
     private void sendSinglePickup() {
         if (selectedIndex >= 0 && selectedIndex < nearbyItems.size()) {
             VisualItemEntry entry = nearbyItems.get(selectedIndex);
 
-            // 1. 获取所有源实体并复制一份用于排序
             List<ItemEntity> candidates = new ArrayList<>(entry.getSourceEntities());
-
-            // 2. 按距离排序：优先拾取离玩家最近的物品
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
+                // 优先拾取最近的
                 candidates.sort(Comparator.comparingDouble(e -> e.distanceToSqr(mc.player)));
             }
 
-            // 3. 收集 ID 并发包 (客户端不再进行数量预判，全部交给服务端剪裁)
             List<Integer> ids = candidates.stream()
                     .filter(ItemEntity::isAlive)
                     .map(ItemEntity::getId)
                     .collect(Collectors.toList());
 
             if (!ids.isEmpty()) {
-                // limitToMaxStack = true: 限制最大 64 个
                 NetworkHandler.sendToServer(new PacketBatchPickup(ids, false, true));
             }
         }
     }
 
-    /** * 向服务端发送批量拾取请求
+    /**
+     * 发送批量拾取请求.
+     * 逻辑：不限制数量，请求拾取列表中的所有实体。
+     *
      * @param entities 目标实体列表
-     * @param isAuto   是否是由自动拾取触发
+     * @param isAuto 是否由自动拾取触发 (服务端可能据此略过某些检查)
      */
     private void sendBatchPickup(List<ItemEntity> entities, boolean isAuto) {
         List<Integer> ids = entities.stream()
@@ -323,7 +346,6 @@ public class Core {
                 .collect(Collectors.toList());
 
         if (!ids.isEmpty()) {
-            // limitToMaxStack = false: 批量拾取/自动拾取不限制数量，全吸
             NetworkHandler.sendToServer(new PacketBatchPickup(ids, isAuto, false));
         }
     }

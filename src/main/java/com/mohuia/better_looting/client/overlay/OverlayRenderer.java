@@ -1,10 +1,15 @@
 package com.mohuia.better_looting.client.overlay;
 
+import org.joml.Matrix4f;
+import org.joml.Vector4f;
+import com.mojang.blaze3d.platform.Window;
 import com.mohuia.better_looting.client.Constants;
 import com.mohuia.better_looting.client.Core;
+import com.mohuia.better_looting.client.KeyInit;
 import com.mohuia.better_looting.client.Utils;
 import com.mohuia.better_looting.client.core.VisualItemEntry;
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -20,31 +25,42 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 渲染器实现类.
+ * 战利品 Overlay 渲染器。
  * <p>
- * 处理底层的绘制操作，包括物品行、滚动条、Tooltip 以及交互提示。
- * 移除了复杂的几何图形绘制，回归原版风格的极简渲染。
+ * 负责处理客户端的底层 2D 绘制操作，包括物品列表、滚动条、Tooltip 及交互提示。
+ * 采用极简风格，使用原版的 {@link GuiGraphics} 进行渲染，并支持 Alpha 动画过渡。
  */
 public class OverlayRenderer {
     private final Minecraft mc;
 
-    public OverlayRenderer(Minecraft mc) { this.mc = mc; }
+    public OverlayRenderer(Minecraft mc) {
+        this.mc = mc;
+    }
 
     // =========================================
     //            1. 顶部过滤器标签
     // =========================================
 
+    /**
+     * 渲染列表顶部的过滤选项卡（全部 / 仅稀有）。
+     *
+     * @param gui 当前的 GUI 绘图上下文
+     * @param x   起始 X 坐标
+     * @param y   起始 Y 坐标
+     */
     public void renderFilterTabs(GuiGraphics gui, int x, int y) {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         var mode = Core.INSTANCE.getFilterMode();
-        // 绘制两个小方块表示 Tab 状态
+
         drawTab(gui, x, y, mode == Core.FilterMode.ALL, 0xFFFFFFFF);
         drawTab(gui, x + 9, y, mode == Core.FilterMode.RARE_ONLY, 0xFFFFD700);
     }
 
     private void drawTab(GuiGraphics gui, int x, int y, boolean active, int color) {
-        int bg = active ? (color & 0x00FFFFFF) | 0x80000000 : 0x40000000; // 激活时半透明背景，否则更淡
+        // 激活时使用较高的透明度背景，否则颜色变淡
+        int bg = active ? (color & 0x00FFFFFF) | 0x80000000 : 0x40000000;
         int border = active ? color : Utils.colorWithAlpha(color, 136);
+
         renderRoundedRect(gui, x, y - 8, 6, 6, bg);
         gui.renderOutline(x, y - 8, 6, 6, border);
     }
@@ -53,65 +69,63 @@ public class OverlayRenderer {
     //            2. 物品行渲染
     // =========================================
 
+    /**
+     * 渲染单行物品条目，包括背景、图标、数量、名称及特殊标签。
+     *
+     * @param gui       当前的 GUI 绘图上下文
+     * @param entry     要渲染的视觉物品实体（包含物品栈和总数量）
+     * @param selected  该行是否被选中
+     * @param bgAlpha   背景的全局透明度（用于淡入淡出动画）
+     * @param textAlpha 文本和图标的全局透明度
+     * @param isNew     是否标记为新获得的物品
+     */
     public void renderItemRow(GuiGraphics gui, int x, int y, int width, VisualItemEntry entry, boolean selected, float bgAlpha, float textAlpha, boolean isNew) {
-        ItemStack stack = entry.getItem(); // 获取用于显示的物品栈
-        int count = entry.getCount();      // 获取真实的总数量
+        ItemStack stack = entry.getItem();
+        int count = entry.getCount();
 
+        // 1. 渲染行背景
         int bgColor = selected ? Constants.COLOR_BG_SELECTED : Constants.COLOR_BG_NORMAL;
         renderRoundedRect(gui, x, y, width, Constants.ITEM_HEIGHT, Utils.applyAlpha(bgColor, bgAlpha));
 
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         int alpha255 = (int)(textAlpha * 255);
 
-        // 绘制稀有度竖条 (左侧)
+        // 2. 渲染稀有度指示条 (左侧竖线)
         gui.fill(x + 20, y + 3, x + 21, y + Constants.ITEM_HEIGHT - 3,
                 Utils.colorWithAlpha(Utils.getItemStackDisplayColor(stack), alpha255));
 
-        // 绘制物品图标
+        // 3. 渲染物品图标与自定义数量标识
         gui.renderItem(stack, x + 3, y + 3);
-        // 如果数量为 1，不显示文字；如果数量 > 1，显示自定义文字（即支持 > 64 的数字）
         String countText = (count > 1) ? compactCount(count) : null;
-
-        // 使用该重载方法，传入自定义 String 替代原版数量绘制
+        // 覆写原版数量渲染，以支持 >64 的超大数量显示
         gui.renderItemDecorations(mc.font, stack, x + 3, y + 3, countText);
 
-        if (alpha255 <= 5) return; // 透明度过低不绘制文字
+        if (alpha255 <= 5) return; // 透明度极低时剔除文字渲染，节省性能
 
         var pose = gui.pose();
         int textColor = Utils.colorWithAlpha(selected ? Constants.COLOR_TEXT_WHITE : Constants.COLOR_TEXT_DIM, alpha255);
 
-        // 绘制物品名称
+        // 4. 渲染物品名称
         pose.pushPose();
         pose.translate(x + 26, y + 8, 0);
         pose.scale(0.75f, 0.75f, 1.0f);
 
-        // --- 物品名称显示逻辑 (含附魔书特殊处理) ---
-        Component displayName = stack.getHoverName(); // 默认使用物品原名
+        Component displayName = stack.getHoverName();
 
-        // 检查是否为附魔书
+        // 附魔书特判：提取其第一个附魔作为展示名称（保留原版原生的颜色格式，如诅咒的红色）
         if (stack.getItem() instanceof EnchantedBookItem) {
-            // 获取附魔列表
             Map<Enchantment, Integer> enchants = EnchantmentHelper.getEnchantments(stack);
             if (!enchants.isEmpty()) {
-                // 获取第一个附魔
                 Map.Entry<Enchantment, Integer> enchantEntry = enchants.entrySet().iterator().next();
-                Enchantment ench = enchantEntry.getKey();
-                int level = enchantEntry.getValue();
-
-                // 获取原版全名 (这会自动处理颜色：普通附魔为灰色，诅咒为红色)
-                displayName = ench.getFullname(level);
+                displayName = enchantEntry.getKey().getFullname(enchantEntry.getValue());
             }
         }
 
-        // 渲染文字
-        // 注意：虽然 textColor 里包含颜色(白/灰)，但因为 displayName (附魔名) 自带了颜色样式(Style)，
-        // 原版字体渲染器会优先使用 displayName 的 RGB 颜色，
-        // 但会保留 textColor 中的 Alpha (透明度)，从而完美实现"原版字色+模组淡入淡出"。
+        // 渲染文本。由于 displayName 自带 Style 颜色，会覆盖 textColor 的 RGB 部分，但会继承其 Alpha 透明度
         gui.drawString(mc.font, displayName, 0, 0, textColor, false);
-
         pose.popPose();
 
-        // 绘制 "NEW" 标签 (针对背包中没有的物品)
+        // 5. 渲染 "NEW" 标签
         if (isNew) {
             pose.pushPose();
             pose.translate(x + width - 22, y + 8, 0);
@@ -121,7 +135,7 @@ public class OverlayRenderer {
         }
     }
 
-    /** 简单的数字格式化 (如 10000 -> 10k) */
+    /** 格式化超大数量 (例如：10500 -> 10k) */
     private String compactCount(int count) {
         if (count >= 10000) return (count / 1000) + "k";
         return String.valueOf(count);
@@ -131,13 +145,18 @@ public class OverlayRenderer {
     //            3. 滚动条渲染
     // =========================================
 
+    /**
+     * 渲染列表右侧的垂直滚动条。
+     *
+     * @param total  列表总物品数
+     * @param maxVis 当前视口最大可见行数
+     * @param scroll 当前的滚动偏移量
+     */
     public void renderScrollBar(GuiGraphics gui, int total, float maxVis, int x, int y, int h, float alpha, float scroll) {
-        // 背景轨道
         gui.fill(x, y, x + 2, y + h, Utils.applyAlpha(Constants.COLOR_SCROLL_TRACK, alpha));
 
         float ratio = maxVis / total;
         int thumbH = Math.max(10, (int) (h * ratio));
-        // 计算滑块位置
         float progress = (total - maxVis > 0) ? Mth.clamp(scroll / (total - maxVis), 0f, 1f) : 0f;
 
         renderRoundedRect(gui, x, y + (int)((h - thumbH) * progress), 2, thumbH,
@@ -145,26 +164,18 @@ public class OverlayRenderer {
     }
 
     // =========================================
-    //            4. 交互提示 (F键)
+    //            4. 交互提示 (按键提示)
     // =========================================
 
     /**
-     * 绘制交互按键提示.
-     * <p>
-     * 风格调整：
-     * 背景为深色圆角矩形。
-     * 进度条为一个灰色的半透明正方形遮罩，悬浮在背景中心（四周留空），
-     * 并随进度从下往上填充，类似物品冷却效果。
+     * 渲染交互按键提示及长按进度动画。
+     * 包含进度条遮罩和文字超长时的物理裁剪（Scissor Test）滚动效果。
      */
     public void renderKeyPrompt(GuiGraphics gui, int x, int startY, int itemHeight, int selIndex, float scroll, float visibleRows, float bgAlpha) {
         float relSel = selIndex - scroll;
-        // 如果选中项在可视范围外，不绘制
         if (relSel <= -1.0f || relSel >= visibleRows + 0.5f) return;
 
-        // 计算屏幕 Y 坐标
         int y = startY + (int) (relSel * itemHeight) + (itemHeight - 14) / 2;
-
-        // 动态透明度：接近列表边缘时淡出
         float animAlpha = (relSel < 0 ? (1f + relSel) : Mth.clamp((visibleRows + 0.5f) - relSel, 0f, 1f));
         float finalAlpha = bgAlpha * animAlpha;
 
@@ -172,93 +183,120 @@ public class OverlayRenderer {
 
         int boxX = x - 21;
         int boxY = y;
-        int boxSize = 14; // 方块整体大小
+        int boxSize = 14;
 
-        // 4.1 绘制深色背景底框
+        // 1. 绘制底框
         renderRoundedRect(gui, boxX, boxY, boxSize, boxSize, Utils.applyAlpha(Constants.COLOR_KEY_BG, finalAlpha));
 
-        // 4.2 绘制进度填充 (从下往上，灰色透明，保留内边距)
+        // 2. 绘制长按进度遮罩（由下至上填充）
         float progress = Core.INSTANCE.getPickupProgress();
-
         if (progress > 0.0f) {
-            // 内边距 (Padding): 让进度条不贴边
             int padding = 2;
-            int innerSize = boxSize - padding * 2; // 14 - 4 = 10px
-
-            // 计算填充高度
+            int innerSize = boxSize - padding * 2;
             int fillHeight = (int) (innerSize * progress);
 
-            // 计算坐标 (基于内缩后的区域)
-            // 底部基准线 = 盒子底部 - 内边距
-            int innerBottom = boxY + boxSize - padding;
-            // 顶部变化线 = 底部基准线 - 当前高度
-            int fillTop = innerBottom - fillHeight;
-
-            int innerLeft = boxX + padding;
-            int innerRight = innerLeft + innerSize;
-
-            // 填充颜色：灰色透明 (0x80808080)
-            // 调整 Alpha 通道使其受全局渐变影响
-            // 0x80808080 >>> 24 = 0x80 (128)
-            int overlayColor = Utils.colorWithAlpha(0x80808080, (int)(finalAlpha * 255));
-
-            // 绘制填充矩形
-            gui.fill(innerLeft, fillTop, innerRight, innerBottom, overlayColor);
+            gui.fill(boxX + padding, boxY + boxSize - padding - fillHeight,
+                    boxX + padding + innerSize, boxY + boxSize - padding,
+                    Utils.colorWithAlpha(0x80808080, (int)(finalAlpha * 255)));
         }
 
-        // 4.3 绘制文字 "F"
-        String text = "F";
-        int tx = boxX + (boxSize - mc.font.width(text)) / 2;
+        // 3. 绘制按键绑定文本
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        String text = KeyInit.PICKUP.getTranslatedKeyMessage().getString().toUpperCase();
 
-        // 文字始终绘制在最上层，确保清晰可见
-        gui.drawString(mc.font, text, tx, boxY + 3, Utils.colorWithAlpha(Constants.COLOR_TEXT_WHITE, (int)(finalAlpha * 255)), false);
+        int textWidth = mc.font.width(text);
+        int textColor = Utils.colorWithAlpha(Constants.COLOR_TEXT_WHITE, (int)(finalAlpha * 255));
+        int margin = 2;
+        int maxAvailableWidth = boxSize - (margin * 2);
+
+        gui.pose().pushPose();
+        gui.pose().translate(0, 0, 10); // 提升文字深度（Z轴），避免被遮挡
+
+        if (textWidth <= maxAvailableWidth) {
+            // 文本较短，直接居中
+            float tx = boxX + (boxSize - textWidth) / 2.0f;
+            gui.drawString(mc.font, text, (int)tx, boxY + 3, textColor, false);
+        } else {
+            // 文本超长，启用 Scissor 物理坐标裁剪并实现跑马灯滚动
+            int scX = boxX + margin;
+
+            // OpenGL 裁剪测试需要实际屏幕坐标，在此通过 Matrix4f 获取 GUI 缩放比例并转换
+            Matrix4f mat = gui.pose().last().pose();
+            Vector4f min = new Vector4f(scX, boxY, 0, 1.0f);
+            Vector4f max = new Vector4f(scX + maxAvailableWidth, boxY + boxSize, 0, 1.0f);
+            mat.transform(min);
+            mat.transform(max);
+
+            Window win = mc.getWindow();
+            double guiScale = win.getGuiScale();
+
+            int sx = (int)(min.x() * guiScale);
+            int sy = (int)((win.getGuiScaledHeight() - max.y()) * guiScale);
+            int sw = (int)((max.x() - min.x()) * guiScale);
+            int sh = (int)((max.y() - min.y()) * guiScale);
+
+            RenderSystem.enableScissor(Math.max(0, sx), Math.max(0, sy), Math.max(0, sw), Math.max(0, sh));
+
+            // 计算平滑往复滚动 (利用 Cos 余弦波)
+            double time = Util.getMillis() / 1000.0;
+            int overflow = textWidth - maxAvailableWidth;
+            double wave = (Math.cos(time) + 1.0) / 2.0;
+            int scrollOffset = (int) (wave * overflow);
+
+            gui.drawString(mc.font, text, scX - scrollOffset, boxY + 3, textColor, false);
+
+            RenderSystem.disableScissor();
+        }
+
+        gui.pose().popPose();
     }
 
     // =========================================
     //            5. Tooltip 渲染
     // =========================================
 
+    /**
+     * 渲染鼠标悬停时的物品 Tooltip。
+     * 包含防越界逻辑，确保 Tooltip 始终显示在屏幕内，并根据空间自动选择显示在列表左侧或右侧。
+     */
     public void renderTooltip(GuiGraphics gui, ItemStack stack, int screenW, int screenH, OverlayLayout layout, float currentScroll, int selIndex) {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        // 获取 Tooltip 文本行
+
         List<Component> lines = stack.getTooltipLines(mc.player, mc.options.advancedItemTooltips ? TooltipFlag.Default.ADVANCED : TooltipFlag.Default.NORMAL);
         if (lines.isEmpty()) return;
 
-        // 简单的智能定位逻辑：优先显示在列表右侧，不够位置则显示在左侧
+        // 估算 Tooltip 尺寸
         int maxTextWidth = 0;
         for (Component line : lines) {
             int w = mc.font.width(line);
             if (w > maxTextWidth) maxTextWidth = w;
         }
-
-        // 估算宽高
         int tooltipWidthEst = maxTextWidth + 24;
         int tooltipHeightEst = lines.size() * 10 + 12;
 
-        // 计算物品在屏幕上的 Y 坐标
+        // 计算物品基于屏幕的实际 Y 轴中心点
         int listRightEdge = (int) (layout.baseX + layout.slideOffset + (layout.panelWidth + Constants.LIST_X) * layout.finalScale);
         int listLeftEdge = (int) (layout.baseX + layout.slideOffset + Constants.LIST_X * layout.finalScale);
         float itemRelativeY = selIndex - currentScroll;
         int localItemY = layout.startY + (int) (itemRelativeY * layout.itemHeightTotal);
         int screenItemY = (int) (layout.baseY + (localItemY + layout.itemHeightTotal / 2.0f) * layout.finalScale);
 
-        // 限制垂直位置不超出屏幕
-        int desiredTop = screenItemY - (tooltipHeightEst / 2);
-        if (desiredTop < 4) desiredTop = 4;
-        else if (desiredTop + tooltipHeightEst > screenH - 4) desiredTop = screenH - 4 - tooltipHeightEst;
+        // 垂直方向防越界处理
+        int desiredTop = Math.max(4, screenItemY - (tooltipHeightEst / 2));
+        if (desiredTop + tooltipHeightEst > screenH - 4) {
+            desiredTop = screenH - 4 - tooltipHeightEst;
+        }
 
-        // 决定左右位置
+        // 智能定位：优先右侧，空间不足则放置左侧
         int gap = 12;
         int desiredLeft;
         if (listRightEdge + gap + tooltipWidthEst < screenW - 4) {
-            desiredLeft = listRightEdge + gap; // 右侧
+            desiredLeft = listRightEdge + gap;
         } else {
-            desiredLeft = listLeftEdge - gap - tooltipWidthEst; // 左侧
-            if (desiredLeft < 4) desiredLeft = 4;
+            desiredLeft = Math.max(4, listLeftEdge - gap - tooltipWidthEst);
         }
 
-        // 渲染原版 Tooltip
+        // 调用原版 Tooltip 渲染，传入空 Optional 代表无额外数据(如潜影盒的内含物预览)
         gui.renderTooltip(mc.font, lines, Optional.empty(), desiredLeft - 12, desiredTop + 12);
     }
 
@@ -266,9 +304,11 @@ public class OverlayRenderer {
     //            6. 辅助方法
     // =========================================
 
-    /** 绘制一个模拟圆角的矩形 (通过切掉四个角的 1px 实现) */
+    /** * 绘制一个伪圆角矩形。
+     * 通过绘制两个相互交错的矩形，削去四个直角的 1px 来实现圆角视觉效果。
+     */
     private void renderRoundedRect(GuiGraphics gui, int x, int y, int w, int h, int color) {
-        gui.fill(x + 1, y, x + w - 1, y + h, color); // 中间主体
-        gui.fill(x, y + 1, x + w, y + h - 1, color); // 左右两侧
+        gui.fill(x + 1, y, x + w - 1, y + h, color); // 垂直主体（切除左右边缘的上下各 1px）
+        gui.fill(x, y + 1, x + w, y + h - 1, color); // 水平主体（切除上下边缘的左右各 1px）
     }
 }

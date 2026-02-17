@@ -21,7 +21,6 @@ public class MixinMinecraft {
     @Inject(method = "handleKeybinds", at = @At("HEAD"))
     private void betterLooting$interceptKeybinds(CallbackInfo ci) {
         // 只有当周围有可拾取物品时才进行拦截
-        // 只有当周围有可拾取物品时才进行拦截
         if (Core.shouldIntercept()) {
 
             // 1. 消耗掉模组自身的 PICKUP 按键点击

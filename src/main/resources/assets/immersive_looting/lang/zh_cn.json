@@ -61,6 +61,9 @@
 
   "gui.better_looting.conditions_title": "逻辑设置",
   "gui.better_looting.header_condition": "浮悬窗显示条件",
-  "gui.better_looting.scroll_mode": "滚轮使用条件"
+  "gui.better_looting.scroll_mode": "滚轮使用条件",
+
+  "key.better_looting.scroll_modifier": "滚轮修饰键",
+  "key.better_looting.scroll_modifier.desc": "按住此键并滚动鼠标滚轮，可调整HUD列表的选择或翻页"
 
 }
