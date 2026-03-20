@@ -20,8 +20,10 @@ public class PickupHandler {
      */
     private static final int PRESS_THRESHOLD_TICKS = 4;
 
-    /** 自动拾取触发冷却 (10 ticks) */
-    private static final int AUTO_COOLDOWN_MAX = 10;
+    /**
+     * 自动拾取触发冷却 (Tick).
+     */
+    private static final int AUTO_COOLDOWN_MAX = 2;
 
     // --- 内部状态 ---
 
@@ -51,6 +53,7 @@ public class PickupHandler {
     public PickupAction tickInput(boolean isKeyDown, boolean isShiftDown, boolean hasTargets) {
         PickupAction action = PickupAction.NONE;
 
+        // 冷却倒计时
         if (autoPickupCooldown > 0) autoPickupCooldown--;
 
         if (isKeyDown) {
@@ -105,9 +108,29 @@ public class PickupHandler {
         return Mth.clamp(effectiveTicks / effectiveMax, 0.0f, 1.0f);
     }
 
-    public boolean canAutoPickup() { return autoPickupCooldown <= 0; }
-    public void resetAutoCooldown() { this.autoPickupCooldown = AUTO_COOLDOWN_MAX; }
+    /**
+     * 检查是否可以自动拾取.
+     */
+    public boolean canAutoPickup() {
+        return autoPickupCooldown <= 0;
+    }
+
+    /**
+     * 此方法应将冷却归零，以便玩家靠近物品时能瞬间触发。
+     */
+    public void resetAutoCooldown() {
+        this.autoPickupCooldown = 0;
+    }
+
+    /**
+     * 当自动拾取触发发包后，进入短时间冷却，防止发包过载。
+     */
+    public void onAutoPickupTriggered() {
+        this.autoPickupCooldown = AUTO_COOLDOWN_MAX;
+    }
 
     /** 是否正在进行交互 (长按中) */
-    public boolean isInteracting() { return ticksHeld >= PRESS_THRESHOLD_TICKS; }
+    public boolean isInteracting() {
+        return ticksHeld >= PRESS_THRESHOLD_TICKS;
+    }
 }

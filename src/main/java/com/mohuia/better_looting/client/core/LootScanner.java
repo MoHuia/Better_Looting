@@ -3,6 +3,7 @@ package com.mohuia.better_looting.client.core;
 import com.mohuia.better_looting.client.Core;
 import com.mohuia.better_looting.client.Utils;
 import com.mohuia.better_looting.client.filter.FilterWhitelist;
+import com.mohuia.better_looting.config.Config;
 import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -20,8 +21,7 @@ import java.util.*;
  */
 public class LootScanner {
 
-    private static final double EXPAND_XZ = 1.0;
-    private static final double EXPAND_Y = 0.5;
+    // 已移除硬编码常量，改为在 scan 方法中读取配置
 
     /**
      * 物品列表排序比较器.
@@ -58,7 +58,13 @@ public class LootScanner {
     public static List<VisualItemEntry> scan(Minecraft mc, Core.FilterMode filterMode) {
         if (mc.player == null || mc.level == null) return new ArrayList<>();
 
-        AABB area = mc.player.getBoundingBox().inflate(EXPAND_XZ, EXPAND_Y, EXPAND_XZ);
+        // 从配置中读取烘焙好的缓存值
+        double expandXZ = Config.Baked.scanRangeXZ;
+        double expandY = Config.Baked.scanRangeY;
+
+        // 使用配置的范围构建扫描区域
+        AABB area = mc.player.getBoundingBox().inflate(expandXZ, expandY, expandXZ);
+
         List<ItemEntity> rawEntities = mc.level.getEntitiesOfClass(ItemEntity.class, area, entity ->
                 entity.isAlive() && !entity.getItem().isEmpty()
         );

@@ -21,7 +21,6 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 客户端核心控制器 (单例模式).
@@ -95,11 +94,11 @@ public class Core {
      */
     public boolean isItemInInventory(Item item) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return false;
+        if (mc.player == null || item == null) return false;
 
         for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem() == item) {
+            if (!stack.isEmpty() && stack.is(item)) {
                 return true;
             }
         }
@@ -137,8 +136,8 @@ public class Core {
         if (event.phase != TickEvent.Phase.END) return;
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) {
-            nearbyItems.clear();
+        if (mc.player == null || mc.level == null || mc.isPaused()) {
+            if (!nearbyItems.isEmpty()) nearbyItems.clear();
             return;
         }
 
@@ -146,16 +145,31 @@ public class Core {
         if (mc.screen instanceof ConfigScreen) return;
 
         // 1. 执行扫描
-        this.nearbyItems = LootScanner.scan(mc, this.filterMode);
+        List<VisualItemEntry> scannedItems = LootScanner.scan(mc, this.filterMode);
+
+        // 记录旧列表是否为空，用于“瞬间响应”逻辑
+        boolean wasEmpty = this.nearbyItems.isEmpty();
+        this.nearbyItems = scannedItems;
 
         // 2. 处理自动拾取
         if (isAutoMode && !nearbyItems.isEmpty()) {
-            if (pickupHandler.canAutoPickup()) {
-                List<ItemEntity> allEntities = new ArrayList<>();
+            // 优化：如果之前列表为空且现在有了物品，或者 Handler 冷却结束，则触发拾取
+            // 这样当玩家走向掉落物时，一旦进入扫描范围就会立即触发第一次发包
+            if (wasEmpty || pickupHandler.canAutoPickup()) {
+                List<ItemEntity> targets = new ArrayList<>();
                 for (VisualItemEntry entry : nearbyItems) {
-                    allEntities.addAll(entry.getSourceEntities());
+                    for (ItemEntity entity : entry.getSourceEntities()) {
+                        if (entity.isAlive()) {
+                            targets.add(entity);
+                        }
+                    }
                 }
-                sendBatchPickup(allEntities, true);
+
+                if (!targets.isEmpty()) {
+                    sendBatchPickup(targets, true);
+                    // 强制让 Handler 进入一个极短的内部冷却，防止每 tick 都发包
+                    pickupHandler.onAutoPickupTriggered();
+                }
             }
         } else {
             pickupHandler.resetAutoCooldown();
@@ -241,7 +255,7 @@ public class Core {
     }
 
     private void performScroll(double delta) {
-        if (nearbyItems.size() <= 1) return;
+        if (nearbyItems.isEmpty()) return;
         // delta > 0 为向上滚，索引减小；delta < 0 为向下滚，索引增加
         selectedIndex += (delta > 0) ? -1 : 1;
         validateSelection();
@@ -277,13 +291,14 @@ public class Core {
         }
 
         // 1. 循环滚动
-        if (selectedIndex < 0) selectedIndex = nearbyItems.size() - 1;
-        if (selectedIndex >= nearbyItems.size()) selectedIndex = 0;
+        int size = nearbyItems.size();
+        if (selectedIndex < 0) selectedIndex = size - 1;
+        if (selectedIndex >= size) selectedIndex = 0;
 
         double visibleRows = Math.max(1.0, Config.CLIENT.visibleRows.get());
 
         // 2. 计算视口偏移 (TargetScrollOffset)
-        if (nearbyItems.size() <= visibleRows) {
+        if (size <= visibleRows) {
             targetScrollOffset = 0;
             return;
         }
@@ -298,7 +313,7 @@ public class Core {
         }
 
         // 边界钳制
-        int maxOffset = (int) Math.ceil(Math.max(0, nearbyItems.size() - visibleRows));
+        int maxOffset = (int) Math.ceil(Math.max(0, size - visibleRows));
         targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxOffset));
     }
 
@@ -321,10 +336,12 @@ public class Core {
                 candidates.sort(Comparator.comparingDouble(e -> e.distanceToSqr(mc.player)));
             }
 
-            List<Integer> ids = candidates.stream()
-                    .filter(ItemEntity::isAlive)
-                    .map(ItemEntity::getId)
-                    .collect(Collectors.toList());
+            List<Integer> ids = new ArrayList<>(candidates.size());
+            for (ItemEntity e : candidates) {
+                if (e.isAlive()) {
+                    ids.add(e.getId());
+                }
+            }
 
             if (!ids.isEmpty()) {
                 NetworkHandler.sendToServer(new PacketBatchPickup(ids, false, true));
@@ -340,10 +357,12 @@ public class Core {
      * @param isAuto 是否由自动拾取触发 (服务端可能据此略过某些检查)
      */
     private void sendBatchPickup(List<ItemEntity> entities, boolean isAuto) {
-        List<Integer> ids = entities.stream()
-                .filter(ItemEntity::isAlive)
-                .map(ItemEntity::getId)
-                .collect(Collectors.toList());
+        List<Integer> ids = new ArrayList<>(entities.size());
+        for (ItemEntity e : entities) {
+            if (e.isAlive()) {
+                ids.add(e.getId());
+            }
+        }
 
         if (!ids.isEmpty()) {
             NetworkHandler.sendToServer(new PacketBatchPickup(ids, isAuto, false));

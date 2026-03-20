@@ -45,6 +45,8 @@ public class Config {
         public static final ActivationMode DEFAULT_MODE = ActivationMode.ALWAYS;
         public static final ScrollMode DEFAULT_SCROLL_MODE = ScrollMode.ALWAYS;
         public static final double DEFAULT_ANGLE = 45.0;
+        public static final double DEFAULT_SCAN_XZ = 1.0;
+        public static final double DEFAULT_SCAN_Y = 0.5;
 
         // --- 配置项 (ConfigValue) ---
         public final ForgeConfigSpec.DoubleValue xOffset;
@@ -56,6 +58,8 @@ public class Config {
         public final ForgeConfigSpec.EnumValue<ActivationMode> activationMode;
         public final ForgeConfigSpec.EnumValue<ScrollMode> scrollMode;
         public final ForgeConfigSpec.DoubleValue lookDownAngle;
+        public final ForgeConfigSpec.DoubleValue scanRangeXZ;
+        public final ForgeConfigSpec.DoubleValue scanRangeY;
 
         ClientConfig(ForgeConfigSpec.Builder builder) {
             builder.push("client"); // 开始 "client" 分类
@@ -70,6 +74,10 @@ public class Config {
             activationMode = builder.defineEnum("activationMode", DEFAULT_MODE);
             scrollMode = builder.defineEnum("scrollMode", DEFAULT_SCROLL_MODE);
             lookDownAngle = builder.defineInRange("lookDownAngle", DEFAULT_ANGLE, 0.0, 90.0);
+            scanRangeXZ = builder.comment("水平拾取检测范围 (XZ轴), 原版约为 1.0")
+                    .defineInRange("scanRangeXZ", DEFAULT_SCAN_XZ, 0.5, 8.0);
+            scanRangeY = builder.comment("垂直拾取检测范围 (Y轴), 原版约为 0.5")
+                    .defineInRange("scanRangeY", DEFAULT_SCAN_Y, 0.5, 5.0);
 
             builder.pop();
         }
@@ -93,6 +101,9 @@ public class Config {
         public static ActivationMode activationMode;
         public static ScrollMode scrollMode;
         public static double lookDownAngle;
+        public static double scanRangeXZ;
+        public static double scanRangeY;
+
 
         /** 从 Forge 配置对象同步值到静态字段 */
         public static void refresh() {
@@ -105,6 +116,8 @@ public class Config {
             activationMode = CLIENT.activationMode.get();
             scrollMode = CLIENT.scrollMode.get();
             lookDownAngle = CLIENT.lookDownAngle.get();
+            scanRangeXZ = CLIENT.scanRangeXZ.get();
+            scanRangeY = CLIENT.scanRangeY.get();
         }
     }
 

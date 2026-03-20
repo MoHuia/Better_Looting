@@ -48,8 +48,8 @@ public class PacketBatchPickup {
         } catch (NoSuchFieldException e) {
             try {
                 // 2. 尝试生产环境混淆名 (SRG Name)
-                // 注意：field_70292_b 是 1.20.1 对应的 SRG 字段名，若映射表更新需核对
-                PICKUP_DELAY_FIELD = ItemEntity.class.getDeclaredField("field_70292_b");
+                // 修正：1.20.1 对应的 SRG 字段名为 f_32001_
+                PICKUP_DELAY_FIELD = ItemEntity.class.getDeclaredField("f_32001_");
                 PICKUP_DELAY_FIELD.setAccessible(true);
             } catch (NoSuchFieldException ex) {
                 LOGGER.error("BetterLooting: 无法通过反射找到 pickupDelay 字段，将回退到 NBT 检查模式。", ex);
@@ -108,7 +108,7 @@ public class PacketBatchPickup {
         // enqueueWork 确保代码在服务端主线程运行，而非网络 IO 线程，防止并发修改世界数据导致崩溃
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
-            if (player == null) return;
+            if (player == null || !player.isAlive()) return;
 
             int remainingQuota = limitToMaxStack ? 64 : Integer.MAX_VALUE;
             boolean anySuccess = false;
@@ -120,7 +120,7 @@ public class PacketBatchPickup {
                 Entity target = player.level().getEntity(entityId);
 
                 // 验证：目标必须是物品实体、存活且在玩家 8 格范围内 (8^2 = 64)
-                if (target instanceof ItemEntity itemEntity && itemEntity.isAlive() && player.distanceToSqr(target) < 64.0) {
+                if (target instanceof ItemEntity itemEntity && itemEntity.isAlive() && !itemEntity.isRemoved() && player.distanceToSqr(target) < 64.0) {
 
                     // 检查物品是否处于“捡起冷却”状态
                     if (!canPickup(itemEntity)) {
@@ -128,29 +128,35 @@ public class PacketBatchPickup {
                     }
 
                     ItemStack groundStack = itemEntity.getItem();
+                    if (groundStack.isEmpty()) continue;
+
                     int amountToTake = Math.min(groundStack.getCount(), remainingQuota);
 
                     // 模拟拾取：复制物品栈并尝试加入玩家背包
                     ItemStack stackToPickup = groundStack.copy();
                     stackToPickup.setCount(amountToTake);
 
+                    // 执行拾取
                     if (player.getInventory().add(stackToPickup)) {
                         anySuccess = true;
 
-                        // 计算实际进入背包的数量（以防背包只能装下一部分）
+                        // 计算实际进入背包的数量
                         int actuallyPickedUp = amountToTake - stackToPickup.getCount();
-                        remainingQuota -= actuallyPickedUp;
 
-                        // 更新服务端数据：触发捡起统计、扣除地面物品数量
-                        player.take(itemEntity, actuallyPickedUp);
-                        groundStack.shrink(actuallyPickedUp);
+                        if (actuallyPickedUp > 0) {
+                            remainingQuota -= actuallyPickedUp;
+                            // 更新服务端数据：触发捡起统计、扣除地面物品数量
+                            player.take(itemEntity, actuallyPickedUp);
+                            groundStack.shrink(actuallyPickedUp);
 
-                        if (groundStack.isEmpty()) {
-                            itemEntity.discard(); // 物品被捡完，移除实体
+                            if (groundStack.isEmpty()) {
+                                itemEntity.discard(); // 物品被捡完，移除实体
+                            } else {
+                                itemEntity.setItem(groundStack); // 更新剩余数量
+                                anyFull = true; // 还有剩余，说明背包满了
+                            }
                         } else {
-                            itemEntity.setItem(groundStack); // 更新剩余数量
-                            // 如果还有剩余没捡起来（说明背包满了），标记状态
-                            if (!stackToPickup.isEmpty()) anyFull = true;
+                            anyFull = true; // 实际上一个都没捡起来
                         }
                     } else {
                         anyFull = true; // 添加失败，背包已满
@@ -185,6 +191,9 @@ public class PacketBatchPickup {
      * 优先使用反射直接读取字段，失败则回退到 NBT。
      */
     private boolean canPickup(ItemEntity itemEntity) {
+        // 增加基础状态检查
+        if (itemEntity.isRemoved() || !itemEntity.isAlive()) return false;
+
         if (reflectionFailed || PICKUP_DELAY_FIELD == null) {
             // Fallback: 仅当反射初始化失败时，才执行较昂贵的 NBT 读写
             CompoundTag tag = new CompoundTag();
@@ -195,6 +204,7 @@ public class PacketBatchPickup {
         try {
             // Fast Path: 直接内存读取 int
             int delay = PICKUP_DELAY_FIELD.getInt(itemEntity);
+            // 注意：32767 是原版定义的特殊值，表示禁止玩家拾取
             return delay <= 0;
         } catch (IllegalAccessException e) {
             // 理论上 setAccessible(true) 后不会发生，但若发生则拒绝拾取以保安全
