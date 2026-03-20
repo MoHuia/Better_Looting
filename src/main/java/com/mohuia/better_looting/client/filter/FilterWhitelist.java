@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -18,9 +19,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 过滤白名单管理器
@@ -37,6 +36,10 @@ public class FilterWhitelist {
     // 使用自定义 Entry 类来存储 ID 和 NBT，确保 Set 去重逻辑正确
     private final Set<WhitelistEntry> entries = new LinkedHashSet<>();
     private Path configPath;
+
+    // 性能优化：缓存生成的 ItemStack 列表
+    private final List<ItemStack> displayCache = new ArrayList<>();
+    private boolean isDirty = true;
 
     /**
      * 初始化配置文件路径并加载数据
@@ -62,10 +65,11 @@ public class FilterWhitelist {
         ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
         if (id != null) {
             // 获取 NBT 字符串，如果没有 NBT 则为 null
-            String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
+            String nbtStr = stack.hasTag() ? Objects.requireNonNull(stack.getTag()).toString() : null;
             WhitelistEntry entry = new WhitelistEntry(id.toString(), nbtStr);
 
             if (entries.add(entry)) {
+                isDirty = true;
                 save();
             }
         }
@@ -79,10 +83,11 @@ public class FilterWhitelist {
 
         ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
         if (id != null) {
-            String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
+            String nbtStr = stack.hasTag() ? Objects.requireNonNull(stack.getTag()).toString() : null;
             WhitelistEntry entry = new WhitelistEntry(id.toString(), nbtStr);
 
             if (entries.remove(entry)) {
+                isDirty = true;
                 save();
             }
         }
@@ -94,6 +99,7 @@ public class FilterWhitelist {
     public void clear() {
         if (entries.isEmpty()) return;
         entries.clear();
+        isDirty = true;
         save();
     }
 
@@ -121,18 +127,22 @@ public class FilterWhitelist {
      * </p>
      * @return 包含 NBT 数据的物品集合
      */
-    public Set<ItemStack> getDisplayItems() {
-        Set<ItemStack> stacks = new LinkedHashSet<>();
-        for (WhitelistEntry entry : entries) {
-            ItemStack stack = entry.createStack();
-            if (!stack.isEmpty()) {
-                stacks.add(stack);
+    public List<ItemStack> getDisplayItems() {
+        if (isDirty) {
+            displayCache.clear();
+            for (WhitelistEntry entry : entries) {
+                ItemStack stack = entry.createStack();
+                if (!stack.isEmpty()) {
+                    displayCache.add(stack);
+                }
             }
+            isDirty = false;
         }
-        return stacks;
+        return displayCache;
     }
 
     private void save() {
+        if (configPath == null) return;
         try (Writer writer = Files.newBufferedWriter(configPath)) {
             GSON.toJson(entries, writer);
         } catch (IOException e) {
@@ -141,12 +151,13 @@ public class FilterWhitelist {
     }
 
     private void load() {
-        if (!Files.exists(configPath)) return;
+        if (configPath == null || !Files.exists(configPath)) return;
         try (Reader reader = Files.newBufferedReader(configPath)) {
             Set<WhitelistEntry> loaded = GSON.fromJson(reader, new TypeToken<Set<WhitelistEntry>>(){}.getType());
             if (loaded != null) {
                 entries.clear();
                 entries.addAll(loaded);
+                isDirty = true;
             }
         } catch (IOException e) {
             LOGGER.error("Failed to load whitelist", e);
@@ -162,11 +173,29 @@ public class FilterWhitelist {
         public String id;
         public String nbt; // 存储 NBT 的字符串形式
 
+        // 缓存解析后的 NBT 对象，避免频繁字符串解析
+        private transient CompoundTag cachedTag;
+        private transient boolean tagParsed = false;
+
         public WhitelistEntry() {}
 
         public WhitelistEntry(String id, String nbt) {
             this.id = id;
             this.nbt = nbt;
+        }
+
+        private CompoundTag getTag() {
+            if (!tagParsed) {
+                if (nbt != null && !nbt.isEmpty()) {
+                    try {
+                        cachedTag = TagParser.parseTag(nbt);
+                    } catch (Exception e) {
+                        cachedTag = null;
+                    }
+                }
+                tagParsed = true;
+            }
+            return cachedTag;
         }
 
         /**
@@ -180,13 +209,15 @@ public class FilterWhitelist {
 
             // NBT 比对逻辑
             CompoundTag stackTag = stack.getTag();
-            if (this.nbt == null || this.nbt.isEmpty()) {
+            CompoundTag entryTag = getTag();
+
+            if (entryTag == null || entryTag.isEmpty()) {
                 // 白名单没 NBT -> 物品也不能有 NBT (或者为空)
                 return stackTag == null || stackTag.isEmpty();
             } else {
-                // 白名单有 NBT -> 物品必须有完全相同的 NBT
+                // 白名单有 NBT -> 使用 NbtUtils 进行逻辑比对（更健壮）
                 if (stackTag == null) return false;
-                return stackTag.toString().equals(this.nbt);
+                return NbtUtils.compareNbt(entryTag, stackTag, true);
             }
         }
 
@@ -201,13 +232,9 @@ public class FilterWhitelist {
             if (item == null || item == Items.AIR) return ItemStack.EMPTY;
 
             ItemStack stack = new ItemStack(item);
-            if (nbt != null && !nbt.isEmpty()) {
-                try {
-                    CompoundTag tag = TagParser.parseTag(nbt);
-                    stack.setTag(tag);
-                } catch (Exception e) {
-                    LOGGER.error("Failed to parse NBT for whitelist item: " + id, e);
-                }
+            CompoundTag tag = getTag();
+            if (tag != null) {
+                stack.setTag(tag.copy());
             }
             return stack;
         }

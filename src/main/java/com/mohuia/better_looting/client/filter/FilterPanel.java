@@ -7,7 +7,6 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -58,17 +57,19 @@ public class FilterPanel {
     public static void render(GuiGraphics gui, int mouseX, int mouseY, AbstractContainerScreen<?> screen) {
         if (!isOpen) return;
 
-        // 计算面板位置：位于容器 GUI 左侧，预留 4px 间距
-        // 这里的 try-catch 是防御性编程，防止某些模组 GUI 宽度计算异常导致崩溃
-        int guiLeft;
-        try {
-            guiLeft = (screen.width / 2) - 88 - PANEL_WIDTH - 4;
-        } catch (Exception ignored) {
-            guiLeft = (screen.width - 176) / 2 - PANEL_WIDTH - 4;
-        }
+        // --- 位置逻辑优化 ---
+        // 获取容器 GUI 的左边界和上边界
+        int guiLeft = screen.getGuiLeft();
+        int guiTop = screen.getGuiTop();
+        int guiHeight = screen.getXSize(); // 获取容器贴图的实际高度
 
-        int startX = Math.max(4, guiLeft); // 防止超出屏幕左边界
-        int startY = (screen.height - PANEL_HEIGHT) / 2;
+        // 计算面板起始位置：附着在容器左侧，间距 2px
+        int startX = guiLeft - PANEL_WIDTH - 2;
+        // 如果位置超出屏幕左侧，则强制贴齐屏幕左边界 2px 处
+        startX = Math.max(2, startX);
+
+        // 垂直居中于容器 GUI
+        int startY = guiTop + (screen.getYSize() - PANEL_HEIGHT) / 2;
 
         // 1. 绘制 "Clear" (清空) 按钮
         int btnY = startY;
@@ -82,7 +83,7 @@ public class FilterPanel {
         gui.drawCenteredString(Minecraft.getInstance().font, "Clear", startX + PANEL_WIDTH / 2, btnY + (BUTTON_HEIGHT - 8) / 2, textColor);
 
         // 2. 准备物品数据
-        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
+        List<ItemStack> items = FilterWhitelist.INSTANCE.getDisplayItems();
         int totalRows = (int) Math.ceil((double) items.size() / COLS);
         if (items.size() % COLS == 0 || items.isEmpty()) totalRows++; // 确保总有一行空行用于显示 "+"
 
@@ -160,10 +161,11 @@ public class FilterPanel {
     public static boolean click(double mouseX, double mouseY, AbstractContainerScreen<?> screen) {
         if (!isOpen) return false;
 
-        // 重新计算面板位置 (逻辑同 render 方法)
-        int guiLeft = (screen.width / 2) - 88 - PANEL_WIDTH - 4;
-        int startX = Math.max(4, guiLeft);
-        int startY = (screen.height - PANEL_HEIGHT) / 2;
+        // --- 坐标逻辑必须与 render 方法完全一致 ---
+        int guiLeft = screen.getGuiLeft();
+        int guiTop = screen.getGuiTop();
+        int startX = Math.max(2, guiLeft - PANEL_WIDTH - 2);
+        int startY = guiTop + (screen.getYSize() - PANEL_HEIGHT) / 2;
 
         // 检查点击是否在面板范围内
         if (mouseX < startX || mouseX > startX + PANEL_WIDTH || mouseY < startY || mouseY > startY + PANEL_HEIGHT) {
@@ -192,7 +194,7 @@ public class FilterPanel {
 
         // 映射到实际数据索引
         int dataIndex = ((int)scrollOffset + row) * COLS + col;
-        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
+        List<ItemStack> items = FilterWhitelist.INSTANCE.getDisplayItems();
         ItemStack cursorStack = Minecraft.getInstance().player.containerMenu.getCarried();
 
         if (dataIndex < items.size()) {
@@ -219,7 +221,7 @@ public class FilterPanel {
     public static boolean scroll(double delta) {
         if (!isOpen) return false;
 
-        List<ItemStack> items = new ArrayList<>(FilterWhitelist.INSTANCE.getDisplayItems());
+        List<ItemStack> items = FilterWhitelist.INSTANCE.getDisplayItems();
         int totalRows = (int) Math.ceil((double) items.size() / COLS);
         if (items.size() % COLS == 0) totalRows++;
 
