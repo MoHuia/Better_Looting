@@ -1,5 +1,6 @@
 package com.mohuia.better_looting;
 
+import com.mohuia.better_looting.client.overlay.HotbarIndicator;
 import com.mohuia.better_looting.client.overlay.Overlay;
 import com.mohuia.better_looting.config.Config;
 import com.mohuia.better_looting.network.NetworkHandler;
@@ -41,6 +42,7 @@ public class BetterLooting {
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
             //游戏内事件总线，将UI类注册到游戏内事件的总线上
             MinecraftForge.EVENT_BUS.register(new Overlay());
+            MinecraftForge.EVENT_BUS.register(new HotbarIndicator());
         });
     }
 }
